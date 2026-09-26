@@ -45,8 +45,11 @@ dlist 1018 + constant dlend  \ leaves room for the turtle and terminator
 \ The turtle: a triangle drawn after the path, where the beam is, with
 \ its nose 15 pixels along the heading. It's rewritten after every move
 \ and turn, and left out near the edge of the screen, where a vector
-\ hitting the edge would make the 340 misread the rest of the list.
+\ hitting the edge would make the 340 misread the rest of the list. It's
+\ built in TW and copied in last word first, so the list the 340 may be
+\ running always ends in a terminator.
 variable shown   variable tp   variable ax   variable ay
+create tw 6 allot  \ the turtle and terminator, built here first
 : t, ( w -- ) tp @ !  1 tp +! ;
 : off ( len degrees -- dx dy )
   2dup sin 16384 */ >r  cos 16384 */  r> swap ;
@@ -55,13 +58,14 @@ variable shown   variable tp   variable ax   variable ay
 : inside? ( pixel -- flag ) dup 15 < 0= swap 1009 < and ;
 : seen? ( -- flag ) shown @  tx @ px inside? and  ty @ px inside? and ;
 : redraw ( -- ) \ the turtle and the terminator, at the end of the path
-  dl> @ tp !  0 ax !  0 ay !
+  tw tp !  0 ax !  0 ay !
   seen? if
     15 th @ off 0 corner
     8 th @ 150 + off -1 corner   8 th @ 150 - off -1 corner
     15 th @ off -1 corner
   then
-  131072 t,  1024 t, ;
+  131072 t,  1024 t,
+  tp @ tw - begin dup while 1- dup tw + @ over dl> @ + ! repeat drop ;
 
 \ A move of any length becomes N steps whose sizes add up exactly.
 variable vdx   variable vdy   variable vn

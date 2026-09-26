@@ -49,7 +49,12 @@ test:
 test-new:
 	python3 test/run_tests.py --new
 
+# The turtle picture in README.md. Needs an Open SIMH pdp7 with the
+# Type 340 display: make screenshot PDP7=../simh/BIN/pdp7
+screenshot: build/forth.img tools/screenshot.py lib/turtle.fs
+	python3 tools/screenshot.py build/kernel.lst build/forth.img docs/turtle.png
+
 clean:
 	rm -rf build
 
-.PHONY: all run test test-new clean
+.PHONY: all run test test-new screenshot clean
