@@ -1,25 +1,22 @@
 " PDP-7 Forth -- kernel skeleton
 "
-" First assembling cut at the pieces DESIGN.md already settles: NEXT, the
-" CAL trap handler ("nest"), and the dictionary search routine ("find").
-" This is not a running Forth yet -- there is no text interpreter, no
-" ":"/";" compiler, and no primitive set. It is a cold-start smoke test
-" that hand-builds two dictionary entries (a primitive "BYE" and a colon
-" word "GO" that calls it) and drives NEXT/nest/find far enough to prove
-" the threading and search mechanics from DESIGN.md actually assemble and
-" execute as described.
+" Assembling cut at the pieces DESIGN.md settles: NEXT, the CAL trap
+" handler ("nest"), the dictionary search routine ("find"), the pop half
+" of the stack push/pop convention, and EXIT. This is not a running
+" Forth yet -- there is no text interpreter, no ":"/";" compiler, and no
+" primitive set beyond the two needed to exercise the mechanics. It is a
+" cold-start smoke test that hand-builds a 3-entry test dictionary (two
+" primitives, BYE and EXIT, and a colon word GO that calls both in
+" sequence) and drives NEXT/nest/find/EXIT far enough to prove a full
+" call-and-return cycle assembles and executes as designed.
 "
-" Assemble with (from the pdp7forth repo root):
-"   tools/pdp7-unix/tools/as7 -f list -o build/kernel.lst \
-"       tools/pdp7-unix/src/sys/sop.s src/kernel.s
+" From the pdp7forth repo root: "make" assembles to build/kernel.lst;
+" "make test" runs the smoke tests below under SimH (test/run_tests.py).
 "
-" Two judgement calls were needed that DESIGN.md leaves unspecified; both
-" are flagged in DESIGN.md's "Implementation notes" section for
-" confirmation rather than silently promoted to [decided]:
-"   - Header tag numbering (colon=0, primitive=1, constant=2, variable=3,
-"     4-7 spare), matching the table's row order.
-"   - Name characters packed as classic SIXBIT (ascii - 040), matching
-"     "6-bit characters" plus case-folded input.
+" DESIGN.md's Implementation notes section records the judgement calls
+" this needed (header tag numbering, SIXBIT name packing, the pop
+" convention, and EXIT as an ordinary primitive rather than a new tag),
+" all confirmed by Mitch.
 "
 " Register conventions, per DESIGN.md:
 "   IP = auto-index register 10
@@ -78,6 +75,35 @@ next:	xct i 010	" pre-increment IP, execute the thread cell
 	dac i 012	" push AC (only reached by constant/variable cells)
 	jmp next
 
+" --- pop.rp / pop.sp: pop the return / data stack ---
+" Auto-index registers only pre-increment, so push (already used by
+" nest and NEXT above, growing up) gets that for free; pop is the manual
+" half DESIGN.md flagged as open. Convention: save the register's
+" current value (the address of TOS) in a scratch cell, decrement the
+" register, then read the popped value back through the saved pointer
+" (a plain, non-incrementing indirect reference, exactly like nest's use
+" of "t" above). Impure JMS convention, as with find: returns the popped
+" value in AC.
+pop.rp:	0
+	lac 011
+	dac t2
+	lac 011
+	tad m1
+	dac 011
+	lac i t2
+	jmp i pop.rp
+
+pop.sp:	0
+	lac 012
+	dac t2
+	lac 012
+	tad m1
+	dac 012
+	lac i t2
+	jmp i pop.sp
+
+t2:	0		" pop.rp/pop.sp's scratch cell
+
 " --- find: dictionary search ---
 " DESIGN.md Dictionary/headers section, transcribed directly, using
 " single-digit relative labels (as7's Nf/Nb convention) so the internal
@@ -124,53 +150,69 @@ tag.colon=	0
 tag.prim=	001000
 
 " --- test dictionary ---
-" BYE: a primitive. Its header's body (word 2) is straight-line machine
-" code -- here just enough to prove control got there, no NEXT/jmp next,
-" since nothing calls back into it.
-cnt.bye=	060000		" count=3, positioned into the count field
+" BYE: a primitive that pushes a marker value rather than just leaving
+" it in AC. Per DESIGN.md's Threading consequences, "TOS is not cached
+" in AC" -- a primitive's result must be pushed to survive the next
+" primitive call, so this is the well-formed shape, not the halt-and-
+" inspect-AC shortcut the first cut used.
+cnt.bye=	060000		" count=3
 
-latest:	h.go		" head of the (2-entry) test dictionary
+" EXIT: also an ordinary primitive (see DESIGN.md's Implementation
+" notes on the 4 spare tags) -- a colon word calls it to return, same
+" mechanism as calling BYE.
+cnt.ex=		0100000		" count=4 ("EXIT"; only "EXI" is stored)
 
-h.bye:	cnt.bye tag.prim 0	" link=0: BYE is the oldest entry
-	0427145			" 'BYE' packed as sixbit (ascii-040)
+latest:	h.go		" head of the (3-entry) test dictionary
+
+h.bye:	cnt.bye tag.prim 0		" link=0: BYE is the oldest entry
+	0427145				" 'BYE' packed as sixbit
 bye.body:
 	lac byemark
-	hlt
+	dac i 012	" push the result -- don't just leave it in AC
+	jmp next
 byemark:
 	0123456
 
+h.ex:	cnt.ex tag.prim h.ex-h.bye-1
+	0457051				" 'EXI' packed as sixbit
+ex.body:
+	jms pop.rp	" AC := the caller's CAL-cell address, pushed by nest
+	dac 010		" IP := that address directly -- no "tad m1" here,
+			" unlike nest: EXIT resumes the cell *after* the
+			" call, nest enters the callee's body
+	jmp next
+
 cnt.go=	040000			" count=2
 
-h.go:	cnt.go tag.colon h.go-h.bye-1
+h.go:	cnt.go tag.colon h.go-h.ex-1
 	0475700			" 'GO ' packed as sixbit, space-padded
 go.body:
-	jmp bye.body		" GO's one-cell thread: call BYE
+	jmp bye.body		" cell 1: call BYE
+	jmp ex.body		" cell 2: call EXIT -- return to our caller
 
-" --- cold start test 1: drive NEXT/nest through a CAL cell ---
+" --- cold start test 1: drive NEXT/nest through a CAL cell, and back ---
 " Simulates what a caller's compiled thread would contain when it
 " references GO: a bare-address cell (CAL's opcode is 0) pointing at
 " GO's thread. Wired up here by hand since there is no compiler yet.
+" GO calls BYE (pushes a marker) then EXIT (returns here), so this
+" exercises the full call/return cycle, not just the call half.
 cboot:	go.body
+halt1:	hlt
 bootip:	cboot-1
 
 start:	lac bootip
 	dac 010
 	jmp next
-" Expected result: bye.body runs, AC = 0123456 (byemark), then halts.
+" Expected result: halts at halt1 with the data stack's bottom slot
+" (address "dstack", the first and only push here) holding 0123456
+" (byemark). AC itself is not meaningful at the halt: EXIT's own pop
+" overwrites whatever BYE left there before returning.
 
 " --- cold start test 2: exercise find() directly ---
-" Looks up "GO" starting from latest and returns its body address in AC.
-cnt2:	040000
-name2:	0475700
-
-test2:	lac cnt2
-	dac tcnt
-	lac name2
-	dac tname
-	jms find
+" The test runner deposits tcnt/tname, then starts here. Expected
+" result: AC = the word's body address, or 777777 (-1) if not found.
+ftest:	jms find
 	hlt
-" Expected result: AC = go.body's address (found), or -1 if the search
-" logic is wrong.
 
 .=0500
 rstack:	.=.+010		" 8-word return stack

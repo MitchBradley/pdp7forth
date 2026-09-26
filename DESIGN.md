@@ -99,38 +99,65 @@ Consequences of this scheme:
 - A constant costs its header plus one word; each use costs one cell.
 - LAW pushes the address with its top 5 bits set (effectively addr − 8192). `@` and `!` still work, since indirection uses only the low 13 bits. Printing a raw address, or comparing addresses from different sources, will see the negative form.
 
+## Stacks
+
+**[decided]**
+- IP, RP and SP live in auto-index registers 10, 11 and 12. Both stacks grow up.
+- Push is the free direction: `dac i 11` / `dac i 12` pre-increments, then stores. Each register starts at (first slot − 1).
+- Pop is the manual direction: save the register (the address of TOS) in a scratch cell, decrement the register, then read the value through the saved pointer with a plain indirect.
+
+```
+pop.sp, 0
+        lac 12
+        dac t2
+        lac 12
+        tad m1
+        dac 12
+        lac i t2      / AC = popped value
+        jmp i pop.sp
+```
+
+- EXIT is an ordinary primitive-tag word, not a spare tag. Every tag's cell is one instruction, and EXIT needs several, so a dedicated tag would still have to JMP to shared code. Its body is `jms pop.rp; dac 10; jmp next`. There is no `tad m1`, unlike nest: the popped value is the address of the caller's CAL cell, and NEXT's pre-increment resumes at the cell after it.
+
 ## Open issues
 
 - **[open]** EXECUTE with colon words. Nest reads the cell through `C(10)`, so EXECUTE can't simply XCT a colon token. Proposal: the xt is the header address p. EXECUTE builds the cell in a scratch location followed by an EXIT cell, pushes IP, and points IP at the scratch cell. That works for every tag.
-- **[open]** Uses for the 4 spare tags.
-- **[open]** Stack directions and pop sequences. Auto-index registers only pre-increment, so one of push/pop is manual for each stack.
+- **[open]** Uses for the 4 spare tags. (EXIT does not use one; see Stacks below.)
 - **[open]** Whether EAE is assumed.
 - **[open]** Target I/O: console teletype, paper tape.
 
 ## Implementation notes
 
-`src/kernel.s` transcribes NEXT, `nest` (the CAL trap handler), and `find`
-(dictionary search) directly from the sections above, plus a hand-built
-2-entry test dictionary and two cold-start smoke tests. Assembles clean
-with `as7` (vendored as a submodule at `tools/pdp7-unix`) and runs
-correctly under SimH's `pdp7`: one test drives a CAL cell through
-NEXT/nest into a colon word that calls a primitive (verified via the
-primitive's halt-time AC value); the other calls `find` directly and
-checks the returned body address. See `src/kernel.s`'s header comment for
-exact build/run steps. No text interpreter, `:`/`;` compiler, or
-primitive set yet -- this only proves the threading/search mechanics
-assemble and execute as designed.
+`src/kernel.s` implements NEXT, `nest` (the CAL trap handler), `find`,
+`pop.rp`/`pop.sp` and EXIT from the sections above, plus a hand-built
+3-entry test dictionary: primitives BYE (pushes a marker) and EXIT, and
+a colon word GO whose thread is `BYE EXIT`. `as7` comes from the
+`tools/pdp7-unix` submodule. `make test` runs `test/run_tests.py`, which
+reads addresses from the listing and checks the results under SimH's
+`pdp7`:
 
-Two things `kernel.s` had to pin down that this file left implicit;
-flagged **[proposed]**, not promoted to decided:
+- A CAL cell into GO pushes the marker, returns through EXIT, and leaves
+  RP back at empty.
+- `find` locates GO (chain head), EXIT, and BYE (two links back), and
+  returns −1 for DUP and BY (a prefix of BYE with a different count).
 
-- **[proposed]** Header tag numbering: colon=0, primitive=1, constant=2,
+There is no text interpreter, `:`/`;` compiler, or real primitive set
+yet.
+
+`as7`'s `rim` and `ptr` output formats only dump memory from the
+relocation base (4096) up, so they produce an empty tape for this
+low-memory layout. The test runner deposits the `a7out` dump directly
+instead. A paper-tape image will need either a loader or code above 4096.
+
+Two things `kernel.s` had to pin down that this file left implicit,
+confirmed by Mitch and promoted to **[decided]**:
+
+- **[decided]** Header tag numbering: colon=0, primitive=1, constant=2,
   variable=3 (4-7 spare), matching the Threading table's row order.
-- **[proposed]** Name characters are packed as classic SIXBIT
+- **[decided]** Name characters are packed as classic SIXBIT
   (`ascii(ch) - 040`), matching "6-bit characters" plus case-folded
-  input. Untested against the [open] question of what "case-folded"
-  produces for punctuation/digits, since the test dictionary only uses
-  letters.
+  input. Still untested against what "case-folded" produces for
+  punctuation/digits, since the test dictionary only uses letters.
 
 One assembler gotcha worth recording here since it's easy to get wrong
 silently: `as7` parses a bare literal with no leading zero as *decimal*

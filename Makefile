@@ -9,10 +9,11 @@ build:
 build/kernel.lst: src/kernel.s $(SOP) | build
 	$(AS7) -f list -o $@ $(SOP) src/kernel.s
 
-build/kernel.rim: src/kernel.s $(SOP) | build
-	$(AS7) -f rim -o $@ $(SOP) src/kernel.s
+# Needs SimH's pdp7 on PATH (Debian/Ubuntu: apt install simh).
+test:
+	python3 test/run_tests.py
 
 clean:
 	rm -rf build
 
-.PHONY: all clean
+.PHONY: all test clean
