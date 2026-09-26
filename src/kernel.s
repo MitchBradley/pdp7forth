@@ -3,7 +3,8 @@
 " A working interactive Forth: the inner interpreter (NEXT and the CAL
 " trap handler "nest"), dictionary search, the primitive set, console
 " I/O, the outer interpreter (a thread starting at qthr), and the ":"/";"
-" compiler with its control words. Start at "cold".
+" compiler with its control words. Start at "cold". Words written in
+" Forth are in src/prelude.fs, compiled into the image at build time.
 "
 " From the repo root: "make" assembles to build/kernel.lst; "make run"
 " boots it in SimH; "make test" runs test/run_tests.py, which assembles
@@ -300,6 +301,20 @@ fold:	0
 1:	lac t6
 	tad om40
 	jmp i fold
+
+" sch: next character of a string being compiled, with a skip; no skip
+" at '"' (consumed) or at the end of the line.
+sch:	0
+	lac inp
+	sad tend
+	jmp i sch
+	dac t4
+	isz inp
+	lac i t4
+	sad o42
+	jmp i sch
+	isz sch
+	jmp i sch
 
 " --- number: convert the token at wptr/wlen in BASE ---
 " Optional leading '-'. Digits past 9 are letters, either case. On
@@ -635,6 +650,7 @@ o10:	010
 o12:	012
 o15:	015
 o40:	040
+o42:	042
 o55:	055
 o77:	077
 o51:	051
@@ -654,6 +670,7 @@ c.bran:	jmp bran
 c.qbran:	jmp qbran
 c.xdo:	jmp xdo
 c.xloop:	jmp xloop
+c.xdotq:	jmp xdotq
 o400k:	0400000
 om40:	-040
 om60:	-060
@@ -1391,7 +1408,53 @@ h.bye:	0060000+tag.prim+h.bye-h.quit-1	" BYE
 bye:	hlt
 	jmp next
 
-latest:	h.bye		" head of the dictionary chain
+" J ( -- index )  the enclosing loop's index: R: ... limit counter
+" [inner limit] [inner counter].
+h.xj:	0020000+tag.prim+h.xj-h.bye-1	" J
+	0520000
+xj:	lac 011
+	tad m2
+	dac t2		" -> outer counter
+	tad m1
+	dac t4		" -> outer limit
+	lac i t2
+	tad i t4
+	dac i 012
+	jmp next
+
+" (.") ( -- )  print the packed string that follows inline (two 9-bit
+" characters per word, ended by a zero word), and resume after it.
+h.xdotq:	0100000+tag.prim+h.xdotq-h.xj-1	" (.")
+	0101602
+xdotq:	lac 010
+	tad d1
+	jms puts	" leaves pstr at the terminating zero word
+	lac pstr
+	dac 010		" NEXT's pre-increment steps past it
+	jmp next
+
+" ." ( -- )  compile (.") and the string up to the next '"'.
+h.dotq:	0050000+tag.prim+h.dotq-h.xdotq-1	" ."
+	0160200
+dotq:	lac c.xdotq
+	jms comp
+1:	jms sch
+	jmp 2f		" end of string
+	cll
+	als 9
+	dac t5		" high character
+	jms sch
+	jmp 3f		" odd length
+	tad t5
+	jms comp
+	jmp 1b
+3:	lac t5
+	jms comp
+2:	cla		" terminating zero word
+	jms comp
+	jmp next
+
+latest:	h.dotq		" head of the dictionary chain
 
 " --- stacks and terminal input buffer (DESIGN.md, Memory) ---
 rstack:	.=.+040		" 32 words

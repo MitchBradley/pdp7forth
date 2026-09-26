@@ -177,7 +177,18 @@ As built (not separately confirmed):
 - `:` checks the relative-link span and the 31-character name limit when it builds a header. ALLOT and `,` check for the literal pool.
 - `.` prints signed in BASE, digits past 9 as upper-case letters, then a space.
 - Also built: `COMPILE,`, LITERAL, `,`, HERE, ALLOT, STATE, `[`, `]`, IMMEDIATE, the compiling control words, `(` and `\` comments, CR, QUIT, and BYE (halts; CONTINUE resumes).
-- Not built yet: J, `."` and other strings, `?DUP`, ROT, `1+`, and most of the rest of the core set. Many can be defined in Forth.
+- J is a primitive, like I: the enclosing loop's cells are right under the inner loop's on the return stack.
+
+## Prelude and strings
+
+**[decided]**
+- Words that are easy to write in Forth live in `src/prelude.fs`. At build time `tools/prelude.py` boots the kernel under SimH, types the prelude at it, and saves memory as the image (`build/forth.img`). The source text takes no space on the target. A prelude line that doesn't answer ` ok` fails the build.
+- Strings are packed two 9-bit characters per word, ended by a zero word (so a zero half-word is skipped on output). `."` compiles `(.")` followed by the string inline; `(.")` prints it and resumes after the terminator.
+
+As built (not separately confirmed):
+- The prelude defines TRUE FALSE BL DECIMAL HEX OCTAL 1+ 1- CELL+ ?DUP NIP TUCK ROT -ROT 2DUP 2DROP > <> 0> 0<> ABS MIN MAX +! SPACE SPACES ['].
+- There's no CELLS: a cell is one word, and CELLS would collide with CELL+ (same length and first three characters, which is all a header stores). The prelude tool rejects any definition that collides like this with an earlier kernel or prelude name. The kernel itself doesn't warn on redefinition.
+- `."` is compile-only. S", TYPE, and character-addressed strings (C@ and friends) aren't built; packed strings make them a design question of their own.
 
 ## Open issues
 
@@ -191,12 +202,23 @@ entries. `src/end.s` must be assembled last; its label marks the start
 of free space. Kernel, stacks, TIB and number buffer end at 02423
 (1299 words).
 
-`make run` boots it in SimH (`pdp7`); `make test` runs
+`make` builds `build/forth.img` (kernel plus compiled prelude) and a
+SimH script for it; `make run` boots it in SimH (`pdp7`); `make test` runs
 `test/run_tests.py`, which assembles the kernel with `test/tests.s`
 (test-only drivers and hand-built threads), reads addresses from the
 listing, and checks results under SimH with console input piped in.
 Besides unit checks on each primitive, it runs scripted interactive
-sessions and compares the exact transcripts. `tools/hdr.py` prints the
+sessions on an image with the prelude compiled in, and compares the
+exact transcripts.
+
+SimH's keyboard delivers the next piped character every TTI `TIME`
+instructions whether or not the program has read the last one, and the
+default interval is far shorter than a teletype's, so input was lost
+after long lines. The tools set it to a Model 33's rate (10 characters
+per second ≈ 30,000 PDP-7 instructions) and wait for each line's
+` ok` or `?` before typing the next (`tools/simh.py`). The same overrun
+could happen on real hardware if input came faster than the kernel
+reads it, for example from a paper-tape reader. `tools/hdr.py` prints the
 two header words for a name.
 
 `as7`'s `rim` and `ptr` output formats only dump memory from the

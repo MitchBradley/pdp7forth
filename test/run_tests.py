@@ -17,6 +17,9 @@ SRCS = [os.path.join(ROOT, f) for f in (
     "tools/pdp7-unix/src/sys/sop.s", "src/kernel.s", "test/tests.s",
     "src/end.s")]
 SP, RP = 0o12, 0o11
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import prelude  # noqa: E402
+import simh  # noqa: E402
 MASK = 0o777777
 
 
@@ -59,35 +62,16 @@ class Result(dict):
 
 
 def run(image, deposits, start, examine, stdin=""):
-    """Run from `start` until it halts; return AC, examined words, output."""
-    cmds = ["set cpu 8k", "set cpu eae", "set tti fdx", "set tti 8b"]
-    cmds += [f"d {a:o} {w & MASK:o}" for a, w in image]
-    cmds += [f"d {a:o} {w & MASK:o}" for a, w in deposits]
-    cmds.append(f"go {start:o}")
-    cmds.append("examine ac")
-    cmds += [f"examine {a:o}" for a in examine]
-    cmds.append("exit")
-    script = os.path.join(BUILD, "run.do")
-    with open(script, "w") as f:
-        f.write("\n".join(cmds) + "\n")
+    """Run from `start` until it halts; return AC, examined words, output.
+    stdin arrives unpaced, so keep it to one line."""
+    sim = simh.Sim(image, start, deposits, examine)
     try:
-        r = subprocess.run(["pdp7", script], input=stdin.encode("latin-1"),
-                           capture_output=True, timeout=20)
+        output, values = sim.finish(stdin, timeout=20)
     except subprocess.TimeoutExpired:
         sys.exit(f"timed out running from {start:o} (hung or waiting for "
                  "input)")
-    r.stdout = r.stdout.decode("latin-1")
-    if "HALT instruction" not in r.stdout:
-        sys.exit(f"did not halt:\n{r.stdout}")
-    result = Result()
-    for m in re.finditer(r"^(\w+):\s+([0-7]+)$", r.stdout, re.M):
-        key = m.group(1)
-        result["ac" if key == "AC" else int(key, 8)] = int(m.group(2), 8)
-    out = r.stdout
-    for pat in (r"PDP-7 simulator V[\d.\-]+\n", r"\nHALT instruction.*\n",
-                r"^\w+:\s+[0-7]+\n", r"Goodbye\n"):
-        out = re.sub(pat, "", out, flags=re.M)
-    result.output = out[:-1] if out.endswith("\n") else out
+    result = Result(values)
+    result.output = output
     return result
 
 
@@ -276,13 +260,23 @@ def main():
     check("number hex", numbers("ff FF 1a G", base=16),
           [ok(255), ok(255), ok(26), bad])
 
-    # --- interactive sessions through the outer interpreter ---
+    # --- interactive sessions, on an image with the prelude compiled in ---
+    ptext = open(os.path.join(ROOT, "src/prelude.fs")).read()
+    prelude.check_names(open(os.path.join(ROOT, "src/kernel.s")).read(),
+                        ptext)
+    pimage, _ = prelude.build(L["cold"], image, ptext)
+    pword = dict(pimage)
+
     def session(desc, exchanges, examine=()):
         """exchanges: (line, response) pairs; response follows the echo."""
-        stdin = "".join(line + "\r" for line, _ in exchanges) + "bye\r"
         want = "PDP-7 FORTH\r\n" + "".join(
             f"{line} {resp}" for line, resp in exchanges) + "bye "
-        r = run(image, [], L["cold"], [SP, RP] + list(examine), stdin)
+        sim = simh.Sim(pimage, L["cold"], examine=[SP, RP] + list(examine))
+        for line, _ in exchanges:
+            sim.type(line)
+        output, values = sim.finish("bye\r")
+        r = Result(values)
+        r.output = output
         check(f"session {desc}", r.output, want)
         return r
 
@@ -317,9 +311,9 @@ def main():
         (": w 3 begin dup while dup . 1 - repeat drop ; w", "3 2 1 " + ok),
         (": h begin dup . 1 - dup 0< if drop exit then again ; 2 h",
          "2 1 0 " + ok),
-        (": n 2 0 do 2 0 do j loop loop ;", "j ?\r\n"),
-        (": n 2 0 do i 10 * 2 0 do dup i + . loop drop loop ; n",
-         "0 1 10 11 " + ok),
+        (": n 2 0 do 2 0 do j 10 * i + . loop loop ; n", "0 1 10 11 " + ok),
+        (": n3 2 0 do 2 0 do 2 0 do j . loop loop loop ; n3",
+         "0 0 1 1 0 0 1 1 " + ok),
     ])
 
     r = session("data", [
@@ -362,11 +356,33 @@ def main():
         ("create z 7000 allot", "allot full?\r\n"),
     ])
     r = session("literal pool", [
-        (": p1 12345 ; : p2 12345 ; : p3 -12345 ;", ok),
-        ("p1 p2 + . p3 .", "24690 -12345 " + ok),
+        (": p1 12345 ; : p2 12345 ; : p3 -12345 ; : p4 10 ;", ok),
+        ("p1 p2 + . p3 . p4 .", "24690 -12345 10 " + ok),
     ], examine=[L["pool"]])
-    check("literal pool: equal values share an entry", r[L["pool"]],
-          0o20000 - 2)
+    check("literal pool: equal values share an entry (10 is already "
+          "pooled by the prelude)", r[L["pool"]], pword[L["pool"]] - 2)
+
+    session("strings", [
+        (': s1 ." ab" ; : s2 ." abc" ; : s3 ." " ; s1 s2 s3', "ababc" + ok),
+        (': s4 ." x" 7 . ." y" ; s4', "x7 y" + ok),
+        (': s5 ." unterminated', ok),
+        ("; s5", "unterminated" + ok),
+    ])
+
+    session("prelude words", [
+        ("5 3 max . 3 5 max . 5 3 min . -4 abs . 4 abs .", "5 5 3 4 4 " + ok),
+        ("1 2 3 rot . . . 1 2 3 -rot . . .", "1 3 2 2 1 3 " + ok),
+        ("1 2 nip . 1 2 tuck . . . 1 2 2dup . . . . 1 2 2drop",
+         "2 2 1 2 2 1 2 1 " + ok),
+        ("0 ?dup . 5 ?dup . .", "0 5 5 " + ok),
+        ("2 1 > . 1 2 > . 1 2 <> . 2 2 <> . 3 0> . -3 0> . 5 0<> .",
+         "-1 0 -1 0 -1 0 -1 " + ok),
+        ("variable w 5 w ! 3 w +! w @ .", "8 " + ok),
+        ("true . false . bl . 7 1+ . 7 1- . 4 cell+ .", "-1 0 32 8 6 5 " + ok),
+        ("hex ff . octal 777 . decimal 99 .", "FF 777 99 " + ok),
+        ("65 emit space 66 emit 3 spaces 67 emit 0 spaces", "A B   C" + ok),
+        (": d2 ['] dup execute ; 6 d2 . .", "6 6 " + ok),
+    ])
 
     print(f"\n{'FAILED' if failures else 'OK'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
