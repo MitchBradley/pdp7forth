@@ -6,8 +6,8 @@ all: build/kernel.lst
 build:
 	mkdir -p build
 
-build/kernel.lst: src/kernel.s $(SOP) | build
-	$(AS7) -f list -o $@ $(SOP) src/kernel.s
+build/kernel.lst: src/kernel.s src/end.s $(SOP) | build
+	$(AS7) -f list -o $@ $(SOP) src/kernel.s src/end.s
 
 # Needs SimH's pdp7 on PATH (Debian/Ubuntu: apt install simh).
 test:

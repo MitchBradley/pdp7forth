@@ -116,6 +116,7 @@ pop.sp, 0
         jmp i pop.sp
 ```
 
+- Each stack is 32 words, statically allocated below the dictionary. Primitives do no underflow or overflow checks; the interpreter checks depth once after each line.
 - EXIT is an ordinary primitive-tag word, not a spare tag. Every tag's cell is one instruction, and EXIT needs several, so a dedicated tag would still have to JMP to shared code. Its body is `jms pop.rp; dac 10; jmp next`. There is no `tad m1`, unlike nest: the popped value is the address of the caller's CAL cell, and NEXT's pre-increment resumes at the cell after it.
 
 ## I/O
@@ -123,8 +124,33 @@ pop.sp, 0
 **[decided]**
 - Console teletype only, polled with interrupts off: `ksf`/`krb` in, `tsf`/`tls` out.
 - 7-bit ASCII. Input strips bit 8, since a real Model 33 sends it set.
-- Case folding happens only on dictionary lookup.
+- Case folding happens only on dictionary lookup (and on number digits past 9).
 - No paper tape for now.
+
+As built (not separately confirmed):
+- The kernel echoes input; SimH needs `set tti fdx` so it doesn't echo too.
+- CR ends a line and isn't echoed, so " ok" lands on the same line.
+- Rubout and backspace drop the last character and echo a backspace.
+- The TIB holds 80 characters, one per word. Characters past 80 are ignored.
+
+## Memory
+
+**[decided]**
+- Low memory: auto-index registers 10–17, CAL slot at 20, nest at 21, then the kernel, the two stacks, and the TIB. The dictionary grows up from there (`dp`).
+- Literals live in a pool that grows down from the top of memory (`pool`). Compiling a literal searches the pool for an equal value before adding one. Free space is the single gap between `dp` and `pool`.
+- No FORGET, so the pool never has to shrink.
+
+## Numbers and arithmetic
+
+**[decided]**
+- BASE defaults to decimal.
+
+As built (not separately confirmed):
+- `number` accepts an optional leading `-`; digits past 9 are letters in either case, up to base 36.
+- EAE's signed MULS/IDIVS assume ones'-complement signs (−6 × 7 gives the ones' complement of 5 × 7), so they're unusable with two's-complement values. `*` uses unsigned MUL: its low 18 bits are the two's-complement product. `/` and MOD divide magnitudes with unsigned IDIV and fix signs in software, truncating toward zero; the remainder has the dividend's sign.
+- Unsigned MUL/IDIV need the link clear first.
+- OR has no instruction; it's `(a^b) ^ (a&b)`.
+- `<` flips both sign bits and uses the unsigned compare, which reads the carry from `b + ~a` out of the link.
 
 ## Flow control
 
@@ -143,44 +169,38 @@ pop.sp, 0
 
 ## Implementation notes
 
-`src/kernel.s` implements NEXT, `nest` (the CAL trap handler), `find`,
-`pop.rp`/`pop.sp`, EXIT, and the flow-control runtime words (BRANCH,
-?BRANCH, (DO), (LOOP), I). Two hand-built test words (primitive BYE and
-colon word GO, whose thread is `BYE EXIT`) and hand-built test threads
-sit at the end. `as7` comes from the `tools/pdp7-unix` submodule.
-`make test` runs `test/run_tests.py`, which reads addresses from the
-listing and checks the results under SimH's `pdp7`:
+`src/kernel.s` holds NEXT, nest, `find`, the stack helpers, the
+dictionary (EXIT, BRANCH, ?BRANCH, (DO), (LOOP), I, DUP, DROP, SWAP,
+OVER, >R, R>, R@, @, !, +, −, AND, OR, XOR, INVERT, NEGATE, =, <, U<,
+0=, 0<, *, /, MOD, EMIT, KEY, BASE), and the input routines `accept`,
+`parse` and `number`, which aren't Forth words yet. `src/end.s` must be
+assembled last; its label marks the start of free space. Kernel, stacks
+and TIB currently end at 01300 (704 words).
 
-- A CAL cell into GO pushes a marker, returns through EXIT, and leaves
-  RP back at empty.
-- `find` locates every word from the chain head down to the oldest
-  entry, and returns −1 for DUP and BY (a prefix of BYE with a
-  different count).
-- Threads through ?BRANCH (true and false), BRANCH, and two DO/I/LOOP
-  loops leave the expected data stack and an empty return stack.
+`as7` comes from the `tools/pdp7-unix` submodule. `tools/hdr.py` prints
+the two header words for a name. `make test` runs `test/run_tests.py`,
+which assembles the kernel with `test/tests.s` (test-only drivers and
+hand-built threads), reads addresses from the listing, and checks
+results under SimH's `pdp7` with console input piped in.
 
-There is no text interpreter, `:`/`;` compiler, or real primitive set
-yet.
+There is no outer interpreter or `:`/`;` compiler yet.
 
 `as7`'s `rim` and `ptr` output formats only dump memory from the
 relocation base (4096) up, so they produce an empty tape for this
 low-memory layout. The test runner deposits the `a7out` dump directly
 instead. A paper-tape image will need either a loader or code above 4096.
 
-Two things `kernel.s` had to pin down that this file left implicit,
-confirmed by Mitch and promoted to **[decided]**:
+Header tag numbering (colon=0, primitive=1, constant=2, variable=3,
+4–7 spare) and SIXBIT name packing (`ascii(ch) − 040`) are
+**[decided]**.
 
-- **[decided]** Header tag numbering: colon=0, primitive=1, constant=2,
-  variable=3 (4-7 spare), matching the Threading table's row order.
-- **[decided]** Name characters are packed as classic SIXBIT
-  (`ascii(ch) - 040`), matching "6-bit characters" plus case-folded
-  input. Still untested against what "case-folded" produces for
-  punctuation/digits, since the test dictionary only uses letters.
-
-One assembler gotcha worth recording here since it's easy to get wrong
-silently: `as7` parses a bare literal with no leading zero as *decimal*
-(`10` is decimal ten, not octal 10) -- every octal register/address
-literal in `kernel.s` is written with a leading zero (`010`) to avoid it.
+`as7` gotchas, all easy to hit silently:
+- A literal with no leading zero is *decimal*: `10` is ten. Octal
+  values are written `010`.
+- Labels are truncated to 8 characters.
+- Built-in symbols shadow labels of the same name: opcodes, EAE
+  mnemonics such as `divs` and `abs`, and Unix system call names such as
+  `exit`, `read` and `write`.
 
 ## Idea stack (deferred)
 
