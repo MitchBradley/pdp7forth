@@ -33,18 +33,17 @@ you a `pdp7` command; if not, build it from source (below).
 
 ### SimH on macOS
 
-Install Apple's command-line tools, which provide `make`, `git`, a C
-compiler and Python 3 (`perl` is already there):
+Install Apple's command-line tools, which provide `make`, `git` and
+Python 3 (`perl` is already there), then Open SIMH from Homebrew:
 
 ```
 xcode-select --install
+brew install open-simh
 ```
 
-Homebrew and MacPorts carry SimH, but binary names vary between
-packages, so building the PDP-7 simulator from source is the dependable
-route.
-
 ### Building SimH from source (Linux or macOS)
+
+If no package works for you:
 
 ```
 git clone https://github.com/open-simh/simh.git
@@ -62,8 +61,9 @@ make run PDP7=~/simh/BIN/pdp7
 (`PDP7` works for every target, and for `test/run_tests.py` as an
 environment variable.)
 
-Open SIMH is version 4; this project has only been tested with SimH
-3.8. If something behaves differently under version 4, the console
+The project is developed and tested with SimH 3.8 on Linux, and has
+also been used with Open SIMH 4 (Homebrew's `open-simh`) on macOS. If
+something behaves differently under another version, the console
 settings in `tools/mkdo.py` and `tools/simh.py` are the first place to
 look.
 
