@@ -28,31 +28,55 @@ variable tx   variable ty   variable th   variable pen
 : px ( fixed -- pixel ) 32 + 64 / ;
 
 \ The display list (DLIST, in the kernel): a header that positions the
-\ beam, then one vector word per step of at most 127 pixels, then an
-\ escape and a stop. The 340 may be running the list while we append, so
-\ the new terminator is written before the word that replaces the old one.
+\ beam, then one vector word per step of at most 127 pixels, then the
+\ turtle, an escape and a stop. The 340 may be running the list while we
+\ append, so the new terminator is written before the word that replaces
+\ the old one.
 variable dl>
-dlist 1022 + constant dlend
+dlist 1018 + constant dlend  \ leaves room for the turtle and terminator
 : dl, ( w -- )
   dl> @ dlend = if ." display list full?" cr quit then
   131072 dl> @ 1+ !   1024 dl> @ 2 + !   dl> @ !   1 dl> +! ;
-: vword ( dx dy -- w ) \ |dx| and |dy| at most 127
+: vword ( dx dy -- w ) \ |dx| and |dy| at most 127; not intensified
   dup 0< if negate 256 * 32768 + else 256 * then
-  swap dup 0< if negate 128 + then +
-  pen @ if 65536 + then ;
+  swap dup 0< if negate 128 + then + ;
+: bright ( w -- w' ) 65536 + ;
+
+\ The turtle: a triangle drawn after the path, where the beam is, with
+\ its nose 15 pixels along the heading. It's rewritten after every move
+\ and turn, and left out near the edge of the screen, where a vector
+\ hitting the edge would make the 340 misread the rest of the list.
+variable shown   variable tp   variable ax   variable ay
+: t, ( w -- ) tp @ !  1 tp +! ;
+: off ( len degrees -- dx dy )
+  2dup sin 16384 */ >r  cos 16384 */  r> swap ;
+: corner ( dx dy bright? -- ) \ a vector from the last corner to dx,dy
+  >r 2dup ay @ - swap ax @ - swap vword r> if bright then t,  ay ! ax ! ;
+: inside? ( pixel -- flag ) dup 15 < 0= swap 1009 < and ;
+: seen? ( -- flag ) shown @  tx @ px inside? and  ty @ px inside? and ;
+: redraw ( -- ) \ the turtle and the terminator, at the end of the path
+  dl> @ tp !  0 ax !  0 ay !
+  seen? if
+    15 th @ off 0 corner
+    8 th @ 150 + off -1 corner   8 th @ 150 - off -1 corner
+    15 th @ off -1 corner
+  then
+  131072 t,  1024 t, ;
 
 \ A move of any length becomes N steps whose sizes add up exactly.
 variable vdx   variable vdy   variable vn
 : part ( k -- x y ) dup vdx @ * vn @ /  swap vdy @ * vn @ / ;
 : vec ( dx dy -- )
   vdy ! vdx !  vdx @ abs vdy @ abs max 126 + 127 / vn !
-  vn @ if vn @ 0 do i 1+ part i part rot swap - >r - r> vword dl, loop then ;
+  vn @ if vn @ 0 do
+    i 1+ part i part rot swap - >r - r> vword pen @ if bright then dl,
+  loop then ;
 
 \ Moves that would leave the screen are refused.
 : onscreen? ( fixed -- flag ) px dup 0< 0= swap 1024 < and ;
 : moveto ( x y -- ) \ fixed-point destination
   over onscreen? over onscreen? and 0= if 2drop ." off screen?" cr quit then
-  2dup px ty @ px - >r px tx @ px - r> vec  ty ! tx ! ;
+  2dup px ty @ px - >r px tx @ px - r> vec  ty ! tx !  redraw ;
 
 \ Start a new display list with the beam at the turtle.
 : newlist ( -- )
@@ -60,8 +84,7 @@ variable vdx   variable vdy   variable vn
   8271 dlist !                  \ parameters: point mode, scale 1, bright
   tx @ px 8192 + dlist 1+ !     \ point: x
   ty @ px 98304 + dlist 2 + !   \ point: y, then vector mode
-  dlist 3 + dl> !
-  131072 dl> @ !   1024 dl> @ 1+ !
+  dlist 3 + dl> !  redraw
   -1 display ! ;
 
 : forward ( n -- )
@@ -69,14 +92,17 @@ variable vdx   variable vdy   variable vn
   swap th @ cos 256 */ ty @ +
   moveto ;
 : back ( n -- ) negate forward ;
-: right ( degrees -- ) th +! ;
+: right ( degrees -- ) th +!  redraw ;
 : left ( degrees -- ) negate right ;
 : penup ( -- ) 0 pen ! ;
 : pendown ( -- ) -1 pen ! ;
-: home ( -- ) 32768 32768 moveto  0 th ! ;
+: home ( -- ) 32768 32768 moveto  0 th !  redraw ;
+: hideturtle ( -- ) 0 shown !  redraw ;
+: showturtle ( -- ) -1 shown !  redraw ;
 : clearscreen ( -- ) 32768 tx !  32768 ty !  0 th !  newlist ;
 
 : fd forward ;   : bk back ;   : rt right ;   : lt left ;
 : pu penup ;   : pd pendown ;   : cs clearscreen ;
+: ht hideturtle ;   : st showturtle ;
 
-pendown clearscreen
+-1 shown !  pendown clearscreen

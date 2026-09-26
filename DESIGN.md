@@ -161,10 +161,11 @@ As built (not separately confirmed):
 - `*/` is in the kernel, using the EAE's 36-bit MUL and DIV, so `n × sine` can't overflow before the divide.
 
 As built (not separately confirmed):
-- Display list: a parameter word (point mode, scale 1, full intensity), point words setting X and Y, then one vector word per step of at most 127 pixels, then an escaping vector and a stop. Appending writes the new terminator before the word that replaces the old one, since the 340 may be running the list.
+- Display list: a parameter word (point mode, scale 1, full intensity), point words setting X and Y, then one vector word per step of at most 127 pixels, then the turtle, then an escaping vector and a stop. Appending writes the new terminator before the word that replaces the old one, since the 340 may be running the list.
 - The turtle's position is kept in 1/64 pixel, so rounding doesn't accumulate; a move becomes N vector steps whose sizes add up exactly.
 - A move that would leave the 1024 × 1024 screen is refused (`off screen?`), since a vector hitting the edge would make the 340 escape to parameter mode and misread the rest of the list. A full list refuses further drawing (`display list full?`). Both then QUIT.
-- CLEARSCREEN homes the turtle and starts a new list; HOME draws if the pen is down, as in Logo. The turtle itself isn't drawn.
+- CLEARSCREEN homes the turtle and starts a new list; HOME draws if the pen is down, as in Logo.
+- The turtle is drawn as a triangle at the end of the list, after the path, where the beam is: an invisible vector to its nose (15 pixels along the heading), then three sides to back corners 8 pixels out at ±150°. It's rewritten, with the terminator, after every move, turn and CLEARSCREEN, so it's missing only while a move is in progress. It's left out within 15 pixels of the screen edge, where one of its vectors could hit the edge. HIDETURTLE/HT and SHOWTURTLE/ST turn it off and on.
 - `cold` runs the 340 once over the list's initial stop word, because until it has run once it doesn't report "stopped".
 - Open SIMH's pdp7 enables G2OUT (the Graphics-2, pdp7-unix's second terminal) at device 05, which conflicts with the 340; `make run GRAPHICS=1` disables it and enables DPY.
 - Open SIMH can `screenshot` its display with SDL's dummy video driver, so `make test PDP7_DISPLAY=...` checks an actual drawing.

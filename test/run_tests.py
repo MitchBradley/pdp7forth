@@ -100,6 +100,7 @@ class Turtle:
         self.x = self.y = 512 * 64
         self.heading = 0
         self.pen = True
+        self.shown = True
         self.clear()
 
     def clear(self):
@@ -110,10 +111,11 @@ class Turtle:
     def px(fixed):
         return tdiv(fixed + 32, 64)
 
-    def vword(self, dx, dy):
+    @staticmethod
+    def vword(dx, dy, bright):
         w = (0o100000 | -dy << 8) if dy < 0 else dy << 8
         w += (0o200 | -dx) if dx < 0 else dx
-        return w | (0o200000 if self.pen else 0)
+        return w | (0o200000 if bright else 0)
 
     def forward(self, n):
         nx = self.x + tdiv(n * tsin(self.heading), 256)
@@ -123,11 +125,27 @@ class Turtle:
         part = lambda k: (tdiv(k * dx, steps), tdiv(k * dy, steps))
         for k in range(steps):
             (x1, y1), (x0, y0) = part(k + 1), part(k)
-            self.words.append(self.vword(x1 - x0, y1 - y0))
+            self.words.append(self.vword(x1 - x0, y1 - y0, self.pen))
         self.x, self.y = nx, ny
 
+    def marker(self):
+        inside = lambda p: 15 <= p <= 1008
+        if not (self.shown and inside(self.px(self.x))
+                and inside(self.px(self.y))):
+            return []
+        off = lambda n, d: (tdiv(n * tsin(d), 16384),
+                            tdiv(n * tsin(d + 90), 16384))
+        h = self.heading
+        corners = [(off(15, h), False), (off(8, h + 150), True),
+                   (off(8, h - 150), True), (off(15, h), True)]
+        words, (ax, ay) = [], (0, 0)
+        for (x, y), bright in corners:
+            words.append(self.vword(x - ax, y - ay, bright))
+            ax, ay = x, y
+        return words
+
     def display_list(self):
-        return self.words + [0o400000, 0o2000]
+        return self.words + self.marker() + [0o400000, 0o2000]
 
 
 def png_pixels(path):
@@ -603,6 +621,17 @@ def main():
     t.forward(-50)
     check_list("clearscreen and back", ["100 fd clearscreen 50 bk"], t)
 
+    t = Turtle()
+    t.heading = 30
+    t.shown = False
+    t.forward(100)
+    check_list("hideturtle", ["30 rt ht 100 fd"], t)
+
+    t = Turtle()
+    t.heading = 90
+    t.forward(490)          # 10 pixels from the right edge: no turtle
+    check_list("turtle left out near the edge", ["90 rt 490 fd"], t)
+
     out, mem = turtle_run(["600 fd", "display @ ."])
     check("turtle refuses to leave the screen", out.split("\r\n")[-3:-1],
           ["600 fd off screen?", "display @ . -1  ok"])
@@ -638,6 +667,11 @@ def main():
               [p for p in edges if not lit(*p)], [])
         check("turtle screenshot: inside and outside dark",
               [p for p in ((612, 612), (300, 300), (800, 800)) if lit(*p)],
+              [])
+        # The turtle, home again and heading up: nose 15 pixels above
+        # the start, back corners about 7 pixels below it.
+        check("turtle screenshot: the turtle",
+              [p for p in ((512, 527), (508, 505), (516, 505)) if not lit(*p)],
               [])
 
     print(f"\n{'FAILED' if failures else 'OK'}: {failures} failure(s)")

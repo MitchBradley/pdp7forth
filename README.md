@@ -226,8 +226,12 @@ is clockwise):
 | `PENDOWN` | `PD` | |
 | `HOME` | | move to the middle, heading up (drawing if the pen is down) |
 | `CLEARSCREEN` | `CS` | erase, and go home |
+| `HIDETURTLE` | `HT` | stop drawing the turtle |
+| `SHOWTURTLE` | `ST` | draw it again |
 
-A move that would leave the screen is refused with `off screen?`. The
+The turtle is a small triangle pointing along its heading. It isn't
+drawn within 15 pixels of the edge of the screen. A move that would
+leave the screen is refused with `off screen?`. The
 drawing is kept in a display list of 1024 words (roughly a thousand
 line segments); when it's full, drawing stops with `display list full?`
 until `CLEARSCREEN`.
