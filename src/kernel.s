@@ -1779,7 +1779,22 @@ char:	jms parse
 	dac i 012
 	jmp next
 
-latest:	h.char		" head of the dictionary chain
+" .( ( "ccc<paren>" -- )  print up to the next ')' on the line, at once,
+" compiling or not.
+h.dotp:	0050000+tag.prim+h.dotp-h.char-1	" .(
+	0161000
+dotp:	lac inp
+	sad tend
+	jmp next
+	dac t4
+	isz inp
+	lac i t4
+	sad o51		" ')'
+	jmp next
+	jms putc
+	jmp dotp
+
+latest:	h.dotp		" head of the dictionary chain
 
 " --- stacks and terminal input buffer (DESIGN.md, Memory) ---
 rstack:	.=.+040		" 32 words

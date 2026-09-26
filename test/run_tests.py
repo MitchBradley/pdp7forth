@@ -213,6 +213,11 @@ def new_features(session, ok):
         ("cs count . char+ c@ .", "3 98 " + ok),
         ("variable cv 120 cv c! cv c@ emit", "x" + ok),
     ])
+    session(".(", [
+        (".( hello) 1 .", "hello1 " + ok),
+        (": dp .( now) 2 . ; dp", "now2 " + ok),
+        (".( open", "open" + ok),
+    ])
 
 
 def main():

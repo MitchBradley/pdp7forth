@@ -120,7 +120,8 @@ FOO FOO ?
   character per word, and `TYPE` prints it: `S" hello" TYPE`. At the
   prompt the string goes into a buffer that the next `S"` reuses; in a
   definition it's compiled in. `CHAR A` and, in definitions, `[CHAR] A`
-  give a character's code. `." text"` prints text from a definition.
+  give a character's code. `." text"` prints text from a definition;
+  at the prompt, use `.( text)`.
 - **Looking around.** `WORDS` lists the dictionary. A header keeps only a
   name's length and first three characters, so longer names show as
   those three plus an underscore per missing character (`EXIT` shows as

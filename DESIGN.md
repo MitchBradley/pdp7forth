@@ -238,7 +238,7 @@ As built (not separately confirmed):
 As built (not separately confirmed):
 - The prelude defines TRUE FALSE BL DECIMAL HEX OCTAL 1+ 1- CELL+ ?DUP NIP TUCK ROT -ROT 2DUP 2DROP > <> 0> 0<> ABS MIN MAX +! SPACE SPACES ['].
 - There's no CELLS: a cell is one word, and CELLS would collide with CELL+ (same length and first three characters, which is all a header stores).
-- The kernel has `(S")`, S" and CHAR. The prelude adds C@ C! C, CHAR+ COUNT TYPE [CHAR]. There's no CHARS (a no-op here), which would collide with CHAR+.
+- The kernel has `(S")`, S", CHAR and `.(`. The prelude adds C@ C! C, CHAR+ COUNT TYPE [CHAR]. There's no CHARS (a no-op here), which would collide with CHAR+.
 - A string that reaches the end of the line without a closing `"` ends there, for S" as for `."`.
 
 ## Name collisions and WORDS
@@ -249,7 +249,7 @@ As built (not separately confirmed):
 
 As built (not separately confirmed):
 - WORDS prints the stored characters of each name, then one underscore per character that wasn't stored (`EXIT` shows as `EXI_`), so the listing shows each name's true length. It starts on a new line and breaks lines at about 60 columns, since a Model 33 doesn't wrap.
-- `."` always compiles. That works in a definition or an interpretive control structure; typed bare at the prompt it lays the string down in the dictionary, unused. S" works either way.
+- `."` always compiles. That works in a definition or an interpretive control structure; typed bare at the prompt it lays the string down in the dictionary, unused. Use `.(` there instead: it's immediate and prints up to the next `)` at once. S" works either way.
 
 ## Open issues
 
