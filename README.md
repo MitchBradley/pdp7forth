@@ -75,8 +75,8 @@ make test     # run the test suite under SimH
 ```
 
 `make test PDP7_DISPLAY=path/to/open-simh/pdp7` also checks a turtle
-drawing on the emulated display (without opening a window). It's
-skipped otherwise.
+drawing on the emulated display (see Turtle graphics). It's skipped
+otherwise.
 
 `make` runs SimH once to compile the prelude, so SimH is needed even
 to build.
@@ -193,26 +193,60 @@ reread it.
 
 ## Turtle graphics
 
-Open SIMH (version 4, including Homebrew's `open-simh`) emulates the
-PDP-7's Type 340 display in a window; SimH 3.8 doesn't have it. Turtle
-graphics comes as a Forth source file, loaded from tape:
+Open SIMH (version 4) emulates the PDP-7's Type 340 display in a window;
+SimH 3.8 doesn't have it. Homebrew's `open-simh` includes the display,
+as does Open SIMH built from source when the SDL2 library is installed
+(the build output then says "video capabilities provided by libSDL2"). Turtle graphics comes as a Forth
+source file, `lib/turtle.fs`, loaded from paper tape.
+
+### Running it
+
+1. From the `pdp7forth` directory, start Forth with the display on and
+   the turtle mounted in the tape reader. If your `pdp7` isn't on
+   `PATH`, name it with `PDP7=`, for example a source build next to this
+   directory:
+
+   ```
+   make run TAPE=lib/turtle.fs GRAPHICS=1
+   make run TAPE=lib/turtle.fs GRAPHICS=1 PDP7=../simh/BIN/pdp7
+   ```
+
+   `GRAPHICS=1` enables the display (and disables the Graphics-2
+   device, which otherwise claims the same device number). A display
+   window opens alongside your terminal.
+
+2. Keep typing in the terminal: it's the teletype. Load the turtle:
+
+   ```
+   TAPE
+   ```
+
+   The source echoes as it loads, and a small triangle appears in the
+   middle of the window, pointing up.
+
+3. Draw:
+
+   ```
+   : SQ 4 0 DO 200 FD 90 RT LOOP ;
+   SQ
+   : FLOWER 8 0 DO SQ 45 RT LOOP ;
+   CS FLOWER
+   : STAR 5 0 DO 400 FD 144 RT LOOP ;
+   CS PU 200 BK 90 LT 200 FD 90 RT PD STAR
+   ```
+
+4. Finish with `BYE` (or ^D), then `exit` at the `sim>` prompt.
+
+To also check a drawing on the emulated display in the test suite (no
+window opens):
 
 ```
-make run TAPE=lib/turtle.fs GRAPHICS=1
+make test PDP7_DISPLAY=../simh/BIN/pdp7
 ```
 
-`GRAPHICS=1` turns the display on (and disables the Graphics-2 device,
-which otherwise claims the same device number). Type `TAPE` to load the
-turtle, then draw:
+### The words
 
-```
-: SQUARE 4 0 DO 200 FD 90 RT LOOP ;
-SQUARE
-: STAR 5 0 DO 400 FD 144 RT LOOP ;
-PU 200 BK 90 LT 200 FD 90 RT PD STAR
-```
-
-The words, with Logo's conventions (the turtle starts in the middle of
+With Logo's conventions (the turtle starts in the middle of
 the 1024 x 1024 screen, heading 0 is up, turns are in degrees and RIGHT
 is clockwise):
 
