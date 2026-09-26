@@ -413,7 +413,8 @@ settles, move its tests into the main suite.
 
 ## Credits
 
-- Don Hopkins and David Rosenthal inspired the effort.
+- The project began with an email exchange with Don Hopkins and David
+  Rosenthal on 25 September 2026, and was written the next day.
 - Warren Toomey (DoctorWkt) and the
   [pdp7-unix](https://github.com/DoctorWkt/pdp7-unix) team wrote `as7`,
   the assembler used here.
