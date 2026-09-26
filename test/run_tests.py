@@ -192,32 +192,7 @@ NEW_ONLY = "--new" in sys.argv[1:]
 
 
 def new_features(session, ok):
-    session("S\" and TYPE", [
-        ('s" hello" type', "hello" + ok),
-        ('s" " nip .', "0 " + ok),
-        ('s" ab" drop dup c@ emit 1+ c@ emit', "ab" + ok),
-        (': g s" hi there" type ; g g', "hi therehi there" + ok),
-        (': n s" abc" nip ; n .', "3 " + ok),
-        (': e s" " nip ; e .', "0 " + ok),
-        (': t s" x" type 7 . s" yz" type ; t', "x7 yz" + ok),
-        ('2 0 do s" ab" type loop', "abab" + ok),
-        ('s" first" s" second" type type', "secondsecon" + ok),
-        (': u s" open', ok),
-        ("; u type", "open" + ok),
-    ])
-    session("characters", [
-        ("char A . char abc .", "65 97 " + ok),
-        (": ca [char] Z emit [char] q . ; ca", "Z113 " + ok),
-        ("1 0 do [char] w emit loop", "w" + ok),
-        ("create cs 3 c, 97 c, 98 c, 99 c, cs count type", "abc" + ok),
-        ("cs count . char+ c@ .", "3 98 " + ok),
-        ("variable cv 120 cv c! cv c@ emit", "x" + ok),
-    ])
-    session(".(", [
-        (".( hello) 1 .", "hello1 " + ok),
-        (": dp .( now) 2 . ; dp", "now2 " + ok),
-        (".( open", "open" + ok),
-    ])
+    pass  # no features in progress
 
 
 def main():
@@ -530,6 +505,35 @@ def main():
         (': s4 ." x" 7 . ." y" ; s4', "x7 y" + ok),
         (': s5 ." unterminated', ok),
         ("; s5", "unterminated" + ok),
+    ])
+
+    session("S\" and TYPE", [
+        ('s" hello" type', "hello" + ok),
+        ('s" " nip .', "0 " + ok),
+        ('s" ab" drop dup c@ emit 1+ c@ emit', "ab" + ok),
+        (': g s" hi there" type ; g g', "hi therehi there" + ok),
+        (': n s" abc" nip ; n .', "3 " + ok),
+        (': e s" " nip ; e .', "0 " + ok),
+        (': t s" x" type 7 . s" yz" type ; t', "x7 yz" + ok),
+        ('2 0 do s" ab" type loop', "abab" + ok),
+        ('s" first" s" second" type type', "secondsecon" + ok),
+        (': u s" open', ok),
+        ("; u type", "open" + ok),
+    ])
+
+    session("characters", [
+        ("char A . char abc .", "65 97 " + ok),
+        (": ca [char] Z emit [char] q . ; ca", "Z113 " + ok),
+        ("1 0 do [char] w emit loop", "w" + ok),
+        ("create cs 3 c, 97 c, 98 c, 99 c, cs count type", "abc" + ok),
+        ("cs count . char+ c@ .", "3 98 " + ok),
+        ("variable cv 120 cv c! cv c@ emit", "x" + ok),
+    ])
+
+    session(".(", [
+        (".( hello) 1 .", "hello1 " + ok),
+        (": dp .( now) 2 . ; dp", "now2 " + ok),
+        (".( open", "open" + ok),
     ])
 
     session("prelude words", [
