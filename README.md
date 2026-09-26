@@ -19,10 +19,15 @@ cd pdp7forth
 
 (In an existing clone, `git submodule update --init` fetches it.)
 
-### SimH on Linux
+### SimH
 
-Debian and Ubuntu package SimH 3.8, which is what this project is
-developed and tested with:
+You can run Forth without graphics with a precompiled SimH, but to
+use Turtle Graphics, you will need to compile yourself to pick up
+the SimH graphics support
+
+#### Precompiled SimH on Linux
+
+Debian and Ubuntu package SimH 3.8, which you can use :
 
 ```
 sudo apt install simh
@@ -31,7 +36,7 @@ sudo apt install simh
 Other distributions may package it too. Check that the package gives
 you a `pdp7` command; if not, build it from source (below).
 
-### SimH on macOS
+#### Precompiled SimH on macOS
 
 Install Apple's command-line tools, which provide `make`, `git` and
 Python 3 (`perl` is already there), then Open SIMH from Homebrew:
@@ -43,7 +48,8 @@ brew install open-simh
 
 ### Building SimH from source (Linux or macOS)
 
-If no package works for you:
+You will need to do this if no package works for you, or if you
+want to use Turtle Graphics.
 
 ```
 git clone https://github.com/open-simh/simh.git
@@ -61,11 +67,8 @@ make run PDP7=~/simh/BIN/pdp7
 (`PDP7` works for every target, and for `test/run_tests.py` as an
 environment variable.)
 
-The project is developed with SimH 3.8 on Linux, and `make test` also
-passes with Open SIMH 4 (Homebrew's `open-simh`) on macOS. If
-something behaves differently under another version, the console
-settings in `tools/mkdo.py` and `tools/simh.py` are the first place to
-look.
+The project was tested with SimH 3.8 on Linux, Homebrew's `open-simh`)
+on macOS, and with Open-SimH compiled from source on Linux and MacOS.
 
 ## Building and testing
 
@@ -113,7 +116,7 @@ FOO FOO ?
   type `set tti 7b`, then `c` to continue.
 - **Editing.** Backspace or Delete erases the last character. There's no
   other line editing.
-- **Control structures at the prompt.** IF, DO and BEGIN work
+- **Interactive control structures at the prompt.** IF, DO and BEGIN work
   interactively as well as in definitions: `4 0 DO I . LOOP` runs as
   soon as the LOOP is typed, and a structure can span lines.
 - **Strings.** `S" text"` gives a string's address and length, one
@@ -127,7 +130,8 @@ FOO FOO ?
   those three plus an underscore per missing character (`EXIT` shows as
   `EXI_`). Two names with the same length and first three characters
   are the same word to the dictionary; defining one prints
-  `name redefined`.
+  `name redefined`.  This length+3 name format is an old-school optimization
+  to save space on memory-limited machines.
 
 ## Stopping and exiting
 
@@ -182,6 +186,7 @@ This appends the ^D for you and mounts the file. Then type
 ```
 TAPE
 ```
+at the Forth prompt to load the file.
 
 ### Mounting a file in the middle of a session (the tape trick)
 
@@ -205,13 +210,14 @@ reread it.
   Ctrl-E, `attach ptr` any file that contains a ^D, and `c`. Forth reads
   the ^D and returns to the keyboard.
 
-## Turtle graphics
+## Turtle Graphics
 
 Open SIMH (version 4) emulates the PDP-7's Type 340 display in a window;
-SimH 3.8 doesn't have it. Homebrew's `open-simh` includes the display,
-as does Open SIMH built from source when the SDL2 library is installed
-(the build output then says "video capabilities provided by libSDL2"). Turtle graphics comes as a Forth
-source file, `lib/turtle.fs`, loaded from paper tape.
+SimH 3.8 doesn't have it. Homebrew's `open-simh` does not have the display,
+so you will have to build it from source with the SDL2 library installed
+(the build output then says "video capabilities provided by libSDL2").
+Turtle graphics comes as a Forth source file, `lib/turtle.fs`, loaded
+from paper tape.
 
 ### Running it
 
@@ -249,6 +255,9 @@ source file, `lib/turtle.fs`, loaded from paper tape.
    CS PU 200 BK 90 LT 200 FD 90 RT PD STAR
    ```
 
+   You could also use interpreted conditions to avoid
+   making unnecessary definitions.
+
 4. Finish with `BYE` (or ^D), then `exit` at the `sim>` prompt.
 
 To also check a drawing on the emulated display in the test suite (no
@@ -258,7 +267,7 @@ window opens):
 make test PDP7_DISPLAY=../simh/BIN/pdp7
 ```
 
-### The words
+### The Turtle words
 
 With Logo's conventions (the turtle starts in the middle of
 the 1024 x 1024 screen, heading 0 is up, turns are in degrees and RIGHT
