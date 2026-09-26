@@ -128,11 +128,11 @@ def main():
     check("call/return: RP back to empty", r[RP], L["rstack"] - 1)
 
     # --- find: head of the chain down to the oldest entry, plus misses ---
-    for name, want in (("BASE", L["base"]), ("U<", L["ult"]),
-                       ("0=", L["zeq"]), ("DUP", L["dup"]),
-                       ("?BRANCH", L["qbran"]), ("BRANCH", L["bran"]),
-                       ("EXIT", L["ex.body"]), ("ROT", MASK),
-                       ("BAS", MASK)):
+    for name, want in (("BYE", L["h.bye"]), ("BASE", L["h.base"]),
+                       ("U<", L["h.ult"]), ("0=", L["h.zeq"]),
+                       ("DUP", L["h.dup"]), ("?BRANCH", L["h.qbran"]),
+                       ("BRANCH", L["h.bran"]), ("EXIT", L["h.ex"]),
+                       ("ROT", MASK), ("BAS", MASK)):
         deps = [(L["tcnt"], count_field(name)), (L["tname"], sixbit(name))]
         r = run(image, deps, L["ftest"], [])
         check(f"find {name}", r["ac"], want)
@@ -218,6 +218,11 @@ def main():
     check("!: stored", r[scratch], 0o555)
     prim("BASE cell", 0o760000 | L["base"], [], [0o760000 | L["base"]])
 
+    # EXECUTE on each tag, through mkcell.
+    prim("EXECUTE primitive", jmp("execute"), [3, L["h.dup"]], [3, 3])
+    prim("EXECUTE variable", jmp("execute"), [L["h.base"]],
+         [0o760000 | L["base"]])
+
     # --- console ---
     r = prim("EMIT", jmp("emit"), [ord("A")], [])
     check("EMIT output", r.output, "A")
@@ -242,7 +247,7 @@ def main():
         toks, r = parsed(line)
         want = [(len(w), count_field(w), sixbit(w)) for w in words]
         check(f"parse {line!r}", toks, want)
-        check(f"echo {line!r}", r.output, line)
+        check(f"echo {line!r}", r.output, line + " ")
     toks, r = parsed("AB\x7fC D\x08E")
     check("parse with rubout/backspace",
           toks, [(2, count_field("AC"), sixbit("AC")),
@@ -270,6 +275,98 @@ def main():
     check("number octal", numbers("17 8 -10", base=8), [ok(15), bad, ok(-8)])
     check("number hex", numbers("ff FF 1a G", base=16),
           [ok(255), ok(255), ok(26), bad])
+
+    # --- interactive sessions through the outer interpreter ---
+    def session(desc, exchanges, examine=()):
+        """exchanges: (line, response) pairs; response follows the echo."""
+        stdin = "".join(line + "\r" for line, _ in exchanges) + "bye\r"
+        want = "PDP-7 FORTH\r\n" + "".join(
+            f"{line} {resp}" for line, resp in exchanges) + "bye "
+        r = run(image, [], L["cold"], [SP, RP] + list(examine), stdin)
+        check(f"session {desc}", r.output, want)
+        return r
+
+    ok = " ok\r\n"
+    r = session("arithmetic and output", [
+        ("2 3 + .", "5 " + ok),
+        ("7 2 - . 7 -2 * . 7 2 / . 7 2 mod .", "5 -14 3 1 " + ok),
+        ("-131072 . 131071 .", "-131072 131071 " + ok),
+        ("2 DUP + .", "4 " + ok),
+        ("16 base ! ff . -1 . a base !", "FF -1 " + ok),
+        ("8 base ! 777 . 12 base !", "777 " + ok),
+        ("1 ( 2 ) 3 + . \\ 99 .", "4 " + ok),
+        ("65 emit 66 emit cr", "AB\r\n" + ok),
+    ])
+    check("session arithmetic: stack empty", r[SP], L["dstack"] - 1)
+    check("session arithmetic: RP holds only BYE's EXECUTE frame", r[RP],
+          L["rstack"])
+
+    session("colon definitions", [
+        (": sq dup * ;", ok),
+        ("7 sq .", "49 " + ok),
+        (": a1 1 ; : a2 a1 a1 + ; : a3 a2 a2 * ;", ok),
+        ("a3 .", "4 " + ok),
+        (": neg -7 . ; neg", "-7 " + ok),
+    ])
+
+    session("control flow", [
+        (": t 3 0 do i . loop ; t", "0 1 2 " + ok),
+        (": f 0= if 11 else 22 then . ; 0 f 1 f", "11 22 " + ok),
+        (": g if 33 . then ; 0 g 1 g", "33 " + ok),
+        (": c 3 begin dup . 1 - dup 0= until drop ; c", "3 2 1 " + ok),
+        (": w 3 begin dup while dup . 1 - repeat drop ; w", "3 2 1 " + ok),
+        (": h begin dup . 1 - dup 0< if drop exit then again ; 2 h",
+         "2 1 0 " + ok),
+        (": n 2 0 do 2 0 do j loop loop ;", "j ?\r\n"),
+        (": n 2 0 do i 10 * 2 0 do dup i + . loop drop loop ; n",
+         "0 1 10 11 " + ok),
+    ])
+
+    r = session("data", [
+        ("variable v 5 v ! v @ .", "5 " + ok),
+        ("10 constant ten ten .", "10 " + ok),
+        ("create arr 1 , 2 , arr @ arr 1 + @ + .", "3 " + ok),
+        ("here 3 allot here swap - .", "3 " + ok),
+        ("state @ .", "0 " + ok),
+    ])
+
+    session("xts", [
+        ("5 ' dup execute . .", "5 5 " + ok),
+        (": five 5 ; ' five execute .", "5 " + ok),
+        ("' base execute @ .", "10 " + ok),
+        ("7 constant sev ' sev execute .", "7 " + ok),
+        (": c1 [ ' dup compile, ] ; 4 c1 . .", "4 4 " + ok),
+        (": i5 5 ; immediate : u i5 literal ; u .", "5 " + ok),
+        ("' nosuch", "nosuch ?\r\n"),
+    ])
+
+    r = session("errors", [
+        ("foo", "foo ?\r\n"),
+        ("1 2 foo 3 .", "foo ?\r\n"),
+        ("drop", " stack?\r\n"),
+        (";", "; ?\r\n"),
+        (":", " name?\r\n"),
+        ("variable hh here hh !", ok),
+        (": bad xyz", "xyz ?\r\n"),
+        ("here hh @ = .", "-1 " + ok),
+        ("bad", "bad ?\r\n"),
+        (": q 1 2 quit 3 ; q", ""),
+        (". .", "2 1 " + ok),
+    ])
+    check("session errors: stack empty", r[SP], L["dstack"] - 1)
+
+    session("link span", [
+        ("create big 600 allot : x ;", "x far?\r\n"),
+    ])
+    session("dictionary full", [
+        ("create z 7000 allot", "allot full?\r\n"),
+    ])
+    r = session("literal pool", [
+        (": p1 12345 ; : p2 12345 ; : p3 -12345 ;", ok),
+        ("p1 p2 + . p3 .", "24690 -12345 " + ok),
+    ], examine=[L["pool"]])
+    check("literal pool: equal values share an entry", r[L["pool"]],
+          0o20000 - 2)
 
     print(f"\n{'FAILED' if failures else 'OK'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)

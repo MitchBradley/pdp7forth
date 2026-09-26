@@ -162,33 +162,48 @@ As built (not separately confirmed):
 - Compiling words (not built yet): IF compiles ?BRANCH plus an empty cell and leaves its address. THEN stores `HERE 1-` there. BEGIN/UNTIL/AGAIN/WHILE/REPEAT/ELSE follow the usual pattern with the same target − 1 convention.
 - Deferred: `+LOOP` (needs a real add and a sign-crossing test instead of ISZ), `?DO`, LEAVE, UNLOOP.
 
+## Execution tokens and the interpreter
+
+**[decided]**
+- An xt is a header address. `find` returns it (or −1), and `'` pushes it.
+- `mkcell` turns an xt into the thread cell that calls it: `optab[tag] | (xt + 2)`. The compiler (`COMPILE,`) and EXECUTE share it.
+- EXECUTE builds that cell in a scratch location followed by an EXIT cell, pushes IP, and points IP at the scratch cell. This works for every tag. A nested EXECUTE can overwrite the scratch cell safely, because the outer one has already been read by then.
+
+As built (not separately confirmed):
+- `find` uses auto-index 013 rather than 10 as in the sketch above: it runs inside primitives, where 10 is IP.
+- The outer interpreter is a thread (`qthr`) over primitives (QUERY), (PARSE), (FIND), (NUMBER), (OK) and (ERR), which keep their headers like every other word. A found word is compiled if STATE is set and the word isn't immediate; otherwise it's executed. A number is compiled as a pooled literal when STATE is set.
+- `:` lays down the header but only `;` links it into LATEST (no smudge bit). `CONSTANT`, `VARIABLE` and `CREATE` link immediately.
+- Errors print the offending token and a message (`?`, `stack?`, `name?`, `far?`, `full?`), then abort: a definition in progress is discarded by resetting `dp` to its header, both stacks are emptied, and STATE returns to 0. `;` outside a definition is an error.
+- `:` checks the relative-link span and the 31-character name limit when it builds a header. ALLOT and `,` check for the literal pool.
+- `.` prints signed in BASE, digits past 9 as upper-case letters, then a space.
+- Also built: `COMPILE,`, LITERAL, `,`, HERE, ALLOT, STATE, `[`, `]`, IMMEDIATE, the compiling control words, `(` and `\` comments, CR, QUIT, and BYE (halts; CONTINUE resumes).
+- Not built yet: J, `."` and other strings, `?DUP`, ROT, `1+`, and most of the rest of the core set. Many can be defined in Forth.
+
 ## Open issues
 
-- **[open]** EXECUTE with colon words. Nest reads the cell through `C(10)`, so EXECUTE can't simply XCT a colon token. Proposal: the xt is the header address p. EXECUTE builds the cell in a scratch location followed by an EXIT cell, pushes IP, and points IP at the scratch cell. That works for every tag.
-- **[open]** Uses for the 4 spare tags. (EXIT does not use one; see Stacks below.)
+- **[open]** Uses for the 4 spare tags. (EXIT does not use one; see Stacks.)
 
 ## Implementation notes
 
-`src/kernel.s` holds NEXT, nest, `find`, the stack helpers, the
-dictionary (EXIT, BRANCH, ?BRANCH, (DO), (LOOP), I, DUP, DROP, SWAP,
-OVER, >R, R>, R@, @, !, +, −, AND, OR, XOR, INVERT, NEGATE, =, <, U<,
-0=, 0<, *, /, MOD, EMIT, KEY, BASE), and the input routines `accept`,
-`parse` and `number`, which aren't Forth words yet. `src/end.s` must be
-assembled last; its label marks the start of free space. Kernel, stacks
-and TIB currently end at 01300 (704 words).
+`src/kernel.s` holds the whole kernel: NEXT, nest, `find`, the stack
+helpers, the outer interpreter and compiler support, and 71 dictionary
+entries. `src/end.s` must be assembled last; its label marks the start
+of free space. Kernel, stacks, TIB and number buffer end at 02423
+(1299 words).
 
-`as7` comes from the `tools/pdp7-unix` submodule. `tools/hdr.py` prints
-the two header words for a name. `make test` runs `test/run_tests.py`,
-which assembles the kernel with `test/tests.s` (test-only drivers and
-hand-built threads), reads addresses from the listing, and checks
-results under SimH's `pdp7` with console input piped in.
-
-There is no outer interpreter or `:`/`;` compiler yet.
+`make run` boots it in SimH (`pdp7`); `make test` runs
+`test/run_tests.py`, which assembles the kernel with `test/tests.s`
+(test-only drivers and hand-built threads), reads addresses from the
+listing, and checks results under SimH with console input piped in.
+Besides unit checks on each primitive, it runs scripted interactive
+sessions and compares the exact transcripts. `tools/hdr.py` prints the
+two header words for a name.
 
 `as7`'s `rim` and `ptr` output formats only dump memory from the
 relocation base (4096) up, so they produce an empty tape for this
-low-memory layout. The test runner deposits the `a7out` dump directly
-instead. A paper-tape image will need either a loader or code above 4096.
+low-memory layout. The test runner and `make run` deposit the `a7out`
+dump directly instead. A paper-tape image will need either a loader or
+code above 4096.
 
 Header tag numbering (colon=0, primitive=1, constant=2, variable=3,
 4–7 spare) and SIXBIT name packing (`ascii(ch) − 040`) are
@@ -197,10 +212,14 @@ Header tag numbering (colon=0, primitive=1, constant=2, variable=3,
 `as7` gotchas, all easy to hit silently:
 - A literal with no leading zero is *decimal*: `10` is ten. Octal
   values are written `010`.
+- Space-separated terms are ORed, not added. Header words must use `+`
+  (`0060000+tag.prim+h.key-h.emit-1`), since addresses overlap the tag
+  bits.
 - Labels are truncated to 8 characters.
 - Built-in symbols shadow labels of the same name: opcodes, EAE
   mnemonics such as `divs` and `abs`, and Unix system call names such as
   `exit`, `read` and `write`.
+- Character literals are `<a>b`: `<a` is the high 9 bits, `>b` the low.
 
 ## Idea stack (deferred)
 
