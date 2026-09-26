@@ -126,6 +126,16 @@ pop.sp, 0
 - Case folding happens only on dictionary lookup.
 - No paper tape for now.
 
+## Flow control
+
+**[decided]**
+- BRANCH and ?BRANCH are primitives followed by an inline cell holding (target − 1). With IP in auto-index 10, BRANCH is `lac i 10; dac 10; jmp next`. ?BRANCH pops the flag, jumps to BRANCH's code if it's zero, and otherwise does `isz 10` to step over the inline cell. Each use costs 2 cells, and targets are absolute, so the 512-word link span doesn't limit them.
+- No 1-cell branch. No single instruction XCT'd from NEXT can load IP with a constant, so a spare tag doesn't help. `CAL i` jumps through location 20, which every ordinary CAL overwrites.
+- Counted loops use ISZ. (DO) takes `limit index` and pushes limit, then a counter of (index − limit), on the return stack. (LOOP) does `isz` on the counter in place and branches back until the counter reaches 0. I is limit + counter.
+- The runtime words keep their headers for now. They could be made headerless later, with the compiling words holding their cells as pooled literals, if space runs short.
+- Compiling words (not built yet): IF compiles ?BRANCH plus an empty cell and leaves its address. THEN stores `HERE 1-` there. BEGIN/UNTIL/AGAIN/WHILE/REPEAT/ELSE follow the usual pattern with the same target − 1 convention.
+- Deferred: `+LOOP` (needs a real add and a sign-crossing test instead of ISZ), `?DO`, LEAVE, UNLOOP.
+
 ## Open issues
 
 - **[open]** EXECUTE with colon words. Nest reads the cell through `C(10)`, so EXECUTE can't simply XCT a colon token. Proposal: the xt is the header address p. EXECUTE builds the cell in a scratch location followed by an EXIT cell, pushes IP, and points IP at the scratch cell. That works for every tag.
@@ -134,17 +144,20 @@ pop.sp, 0
 ## Implementation notes
 
 `src/kernel.s` implements NEXT, `nest` (the CAL trap handler), `find`,
-`pop.rp`/`pop.sp` and EXIT from the sections above, plus a hand-built
-3-entry test dictionary: primitives BYE (pushes a marker) and EXIT, and
-a colon word GO whose thread is `BYE EXIT`. `as7` comes from the
-`tools/pdp7-unix` submodule. `make test` runs `test/run_tests.py`, which
-reads addresses from the listing and checks the results under SimH's
-`pdp7`:
+`pop.rp`/`pop.sp`, EXIT, and the flow-control runtime words (BRANCH,
+?BRANCH, (DO), (LOOP), I). Two hand-built test words (primitive BYE and
+colon word GO, whose thread is `BYE EXIT`) and hand-built test threads
+sit at the end. `as7` comes from the `tools/pdp7-unix` submodule.
+`make test` runs `test/run_tests.py`, which reads addresses from the
+listing and checks the results under SimH's `pdp7`:
 
-- A CAL cell into GO pushes the marker, returns through EXIT, and leaves
+- A CAL cell into GO pushes a marker, returns through EXIT, and leaves
   RP back at empty.
-- `find` locates GO (chain head), EXIT, and BYE (two links back), and
-  returns −1 for DUP and BY (a prefix of BYE with a different count).
+- `find` locates every word from the chain head down to the oldest
+  entry, and returns −1 for DUP and BY (a prefix of BYE with a
+  different count).
+- Threads through ?BRANCH (true and false), BRANCH, and two DO/I/LOOP
+  loops leave the expected data stack and an empty return stack.
 
 There is no text interpreter, `:`/`;` compiler, or real primitive set
 yet.

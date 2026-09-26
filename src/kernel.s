@@ -1,14 +1,10 @@
 " PDP-7 Forth -- kernel skeleton
 "
 " Assembling cut at the pieces DESIGN.md settles: NEXT, the CAL trap
-" handler ("nest"), the dictionary search routine ("find"), the pop half
-" of the stack push/pop convention, and EXIT. This is not a running
-" Forth yet -- there is no text interpreter, no ":"/";" compiler, and no
-" primitive set beyond the two needed to exercise the mechanics. It is a
-" cold-start smoke test that hand-builds a 3-entry test dictionary (two
-" primitives, BYE and EXIT, and a colon word GO that calls both in
-" sequence) and drives NEXT/nest/find/EXIT far enough to prove a full
-" call-and-return cycle assembles and executes as designed.
+" handler ("nest"), dictionary search ("find"), stack pops, EXIT, and
+" the flow-control runtime words (BRANCH, ?BRANCH, (DO), (LOOP), I).
+" This is not a running Forth yet -- there is no text interpreter and no
+" ":"/";" compiler, so the test threads at the end are built by hand.
 "
 " From the pdp7forth repo root: "make" assembles to build/kernel.lst;
 " "make test" runs the smoke tests below under SimH (test/run_tests.py).
@@ -141,38 +137,21 @@ cmask:	0760000		" manifest constant: count-field mask
 lmask:	0000777		" manifest constant: link-field mask
 d2:	2		" manifest constant: decimal 2
 
-" --- header tag field values (this kernel's choice; see DESIGN.md notes) ---
+" --- header tag field values (see DESIGN.md) ---
 " These sit only in header-word arithmetic below, never as an instruction
 " operand, so plain assembler variables (not data cells) are correct here.
 tag.colon=	0
 tag.prim=	001000
 
-" --- test dictionary ---
-" BYE: a primitive that pushes a marker value rather than just leaving
-" it in AC. Per DESIGN.md's Threading consequences, "TOS is not cached
-" in AC" -- a primitive's result must be pushed to survive the next
-" primitive call, so this is the well-formed shape, not the halt-and-
-" inspect-AC shortcut the first cut used.
-cnt.bye=	060000		" count=3
+latest:	h.go		" head of the dictionary chain
 
-" EXIT: also an ordinary primitive (see DESIGN.md's Implementation
-" notes on the 4 spare tags) -- a colon word calls it to return, same
-" mechanism as calling BYE.
-cnt.ex=		0100000		" count=4 ("EXIT"; only "EXI" is stored)
+" === Kernel dictionary ===
+" Primitive bodies end with "jmp next". Branch-type words take an
+" inline cell holding (target - 1), which goes straight into IP.
 
-latest:	h.go		" head of the (3-entry) test dictionary
-
-h.bye:	cnt.bye tag.prim 0		" link=0: BYE is the oldest entry
-	0427145				" 'BYE' packed as sixbit
-bye.body:
-	lac byemark
-	dac i 012	" push the result -- don't just leave it in AC
-	jmp next
-byemark:
-	0123456
-
-h.ex:	cnt.ex tag.prim h.ex-h.bye-1
-	0457051				" 'EXI' packed as sixbit
+" EXIT: an ordinary primitive, not a spare tag (DESIGN.md, Stacks).
+h.ex:	0100000 tag.prim 0		" count=4, link=0: oldest entry
+	0457051				" 'EXI'
 ex.body:
 	jms pop.rp	" AC := the caller's CAL-cell address, pushed by nest
 	dac 010		" IP := that address directly -- no "tad m1" here,
@@ -180,20 +159,93 @@ ex.body:
 			" call, nest enters the callee's body
 	jmp next
 
-cnt.go=	040000			" count=2
+" BRANCH ( -- ): IP := inline cell.
+h.bran:	0140000 tag.prim h.bran-h.ex-1	" count=6
+	0426241				" 'BRA'
+bran:	lac i 010	" fetch the inline (target - 1)
+	dac 010
+	jmp next
 
-h.go:	cnt.go tag.colon h.go-h.ex-1
-	0475700			" 'GO ' packed as sixbit, space-padded
+" ?BRANCH ( flag -- ): branch if flag is zero, else skip the inline cell.
+h.qbran: 0160000 tag.prim h.qbran-h.bran-1	" count=7
+	0374262				" '?BR'
+qbran:	lac 012		" inline pop (DESIGN.md, Stacks)
+	dac t2
+	tad m1
+	dac 012
+	lac i t2	" flag
+	sna		" nonzero (true): fall through
+	jmp bran	" zero: take the branch
+	isz 010		" step over the inline cell (IP is never 0: no skip)
+	jmp next
+
+" (DO) ( limit index -- ) ( R: -- limit index-limit )
+" The top return-stack cell is a counter that (LOOP) ISZes up to 0.
+h.xdo:	0100000 tag.prim h.xdo-h.qbran-1	" count=4
+	0104457				" '(DO'
+xdo:	jms pop.sp	" index
+	dac t3
+	jms pop.sp	" limit
+	dac i 011	" R: limit
+	cma		" -limit-1
+	tad t3
+	tad d1		" index - limit
+	dac i 011	" R: counter
+	jmp next
+
+" (LOOP) ( -- ) ( R: limit counter -- | limit counter+1 )
+" Bump the counter in place; branch back via the inline cell until it
+" reaches 0, then drop both return-stack cells and skip the inline cell.
+h.xloop: 0140000 tag.prim h.xloop-h.xdo-1	" count=6
+	0105457				" '(LO'
+xloop:	lac 011
+	dac t2
+	isz i t2	" counter++; skips when it reaches 0
+	jmp bran	" not done: loop back
+	lac 011
+	tad m1
+	tad m1
+	dac 011		" drop limit and counter
+	isz 010		" step over the inline cell
+	jmp next
+
+" I ( -- index ): limit + counter.
+h.xi:	020000 tag.prim h.xi-h.xloop-1	" count=1
+	0510000				" 'I  '
+xi:	lac 011		" RP -> counter
+	dac t2
+	tad m1
+	dac t3		" -> limit
+	lac i t2
+	tad i t3
+	dac i 012
+	jmp next
+
+t3:	0		" scratch for (DO) and I
+d1:	1
+
+" === Test-only words and threads (driven by test/run_tests.py) ===
+
+" BYE: a primitive that pushes a marker. Per DESIGN.md's Threading
+" consequences, TOS is not cached in AC, so a result must be pushed to
+" survive the next primitive call.
+h.bye:	060000 tag.prim h.bye-h.xi-1	" count=3
+	0427145				" 'BYE'
+bye.body:
+	lac byemark
+	dac i 012
+	jmp next
+byemark:
+	0123456
+
+" GO: a colon word whose thread is BYE EXIT.
+h.go:	040000 tag.colon h.go-h.bye-1	" count=2
+	0475700				" 'GO '
 go.body:
-	jmp bye.body		" cell 1: call BYE
-	jmp ex.body		" cell 2: call EXIT -- return to our caller
+	jmp bye.body
+	jmp ex.body
 
-" --- cold start test 1: drive NEXT/nest through a CAL cell, and back ---
-" Simulates what a caller's compiled thread would contain when it
-" references GO: a bare-address cell (CAL's opcode is 0) pointing at
-" GO's thread. Wired up here by hand since there is no compiler yet.
-" GO calls BYE (pushes a marker) then EXIT (returns here), so this
-" exercises the full call/return cycle, not just the call half.
+" Test 1: a CAL cell into GO, which returns here through EXIT.
 cboot:	go.body
 halt1:	hlt
 bootip:	cboot-1
@@ -201,15 +253,67 @@ bootip:	cboot-1
 start:	lac bootip
 	dac 010
 	jmp next
-" Expected result: halts at halt1 with the data stack's bottom slot
-" (address "dstack", the first and only push here) holding 0123456
-" (byemark). AC itself is not meaningful at the halt: EXIT's own pop
-" overwrites whatever BYE left there before returning.
+" Expected: halts at halt1 with dstack[0] = 0123456 and RP back at empty.
 
-" --- cold start test 2: exercise find() directly ---
-" The test runner deposits tcnt/tname, then starts here. Expected
-" result: AC = the word's body address, or 777777 (-1) if not found.
+" Test 2: find. The runner deposits tcnt/tname, then starts here.
+" Expected: AC = the word's body address, or 777777 (-1) if not found.
 ftest:	jms find
+	hlt
+
+" Thread runner: the runner deposits (thread - 1) into tip, then starts
+" at trun. Each test thread ends with a hlt cell.
+tip:	0
+trun:	lac tip
+	dac 010
+	jmp next
+
+" Constants that test threads push with LAC-tag cells.
+d0:	0
+d3:	3
+d5:	5
+d7:	7
+o111:	0111
+o222:	0222
+
+" ?BRANCH on false: branches over the 111 push.   Expected stack: 222
+tqf:	lac d0
+	jmp qbran
+	1f-1
+	lac o111
+1:	lac o222
+	hlt
+
+" ?BRANCH on true: falls through.   Expected stack: 111 222
+tqt:	lac d1
+	jmp qbran
+	1f-1
+	lac o111
+1:	lac o222
+	hlt
+
+" BRANCH: unconditional.   Expected stack: 222
+tbr:	jmp bran
+	1f-1
+	lac o111
+1:	lac o222
+	hlt
+
+" 5 0 DO I LOOP   Expected stack: 0 1 2 3 4
+tlp0:	lac d5
+	lac d0
+	jmp xdo
+1:	jmp xi
+	jmp xloop
+	1b-1
+	hlt
+
+" 7 3 DO I LOOP   Expected stack: 3 4 5 6
+tlp3:	lac d7
+	lac d3
+	jmp xdo
+1:	jmp xi
+	jmp xloop
+	1b-1
 	hlt
 
 .=0500

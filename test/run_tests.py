@@ -93,13 +93,26 @@ def main():
     check("call/return: pushed value", r[L["dstack"]], 0o123456)
     check("call/return: RP back to empty", r[RP], L["rstack"] - 1)
 
-    # Test 2: find, covering chain head, a two-link walk, and a miss.
-    for name, want in (("GO", L["go.body"]), ("EXIT", L["ex.body"]),
-                       ("BYE", L["bye.body"]), ("DUP", 0o777777),
-                       ("BY", 0o777777)):
+    # Test 2: find, from the chain head down to the oldest entry, + misses.
+    for name, want in (("GO", L["go.body"]), ("BYE", L["bye.body"]),
+                       ("I", L["xi"]), ("?BRANCH", L["qbran"]),
+                       ("BRANCH", L["bran"]), ("EXIT", L["ex.body"]),
+                       ("DUP", 0o777777), ("BY", 0o777777)):
         deps = [(L["tcnt"], count_field(name)), (L["tname"], sixbit(name))]
         r = run(image, deps, L["ftest"], [])
         check(f"find {name}", r["ac"], want)
+
+    # Test 3: hand-built threads through the flow-control words.
+    for thread, want in (("tqf", [0o222]), ("tqt", [0o111, 0o222]),
+                         ("tbr", [0o222]), ("tlp0", [0, 1, 2, 3, 4]),
+                         ("tlp3", [3, 4, 5, 6])):
+        slots = [L["dstack"] + k for k in range(len(want))]
+        r = run(image, [(L["tip"], L[thread] - 1)], L["trun"],
+                [SP, RP] + slots)
+        check(f"{thread}: depth", r[SP] - L["dstack"] + 1, len(want))
+        for k, w in enumerate(want):
+            check(f"{thread}: stack[{k}]", r[slots[k]], w)
+        check(f"{thread}: RP back to empty", r[RP], L["rstack"] - 1)
 
     sys.exit(1 if failures else 0)
 
