@@ -210,7 +210,7 @@ As built (not separately confirmed):
 - `find` uses auto-index 013 rather than 10 as in the sketch above: it runs inside primitives, where 10 is IP.
 - The outer interpreter is a thread (`qthr`) over primitives (QUERY), (PARSE), (FIND), (NUMBER), (OK) and (ERR), which keep their headers like every other word. A found word is compiled if STATE is set and the word isn't immediate; otherwise it's executed. A number is compiled as a pooled literal when STATE is set.
 - `:` lays down the header but only `;` links it into LATEST (no smudge bit). `CONSTANT`, `VARIABLE` and `CREATE` link immediately.
-- Errors print the offending token and a message (`?`, `name?`, `far?`, `full?`; there's no stack checking), then abort: a definition in progress is discarded by resetting `dp` to its header, both stacks are emptied, and STATE returns to 0. `;` outside a definition is an error.
+- Errors print the offending token and a message (`?`, `stack?`, `name?`, `far?`, `full?`), then abort: a definition in progress is discarded by resetting `dp` to its header, both stacks are emptied, and STATE returns to 0. `;` outside a definition is an error.
 - `:` checks the relative-link span and the 31-character name limit when it builds a header. ALLOT and `,` check for the literal pool.
 - `.` prints signed in BASE, digits past 9 as upper-case letters, then a space.
 - Also built: `COMPILE,`, LITERAL, `,`, HERE, ALLOT, STATE, `[`, `]`, IMMEDIATE, the compiling control words, `(` and `\` comments, CR, QUIT, and BYE (halts; CONTINUE resumes).

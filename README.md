@@ -159,7 +159,10 @@ FOO FOO ?
   for a word that isn't defined and isn't a number, `name?` for a
   missing or over-long name, `full?` when memory is full, and `far?`
   when a header would be too far from the previous one (after a very
-  large ALLOT, say). There's no stack checking.
+  large ALLOT, say). At the end of each line the data stack's depth is
+  checked, and underflow or overflow gives `stack?`. The check is per
+  line, not per word, so a line that underflows and then pushes enough
+  back goes unnoticed.
 - **Interactive control structures at the prompt.** IF, DO and BEGIN work
   interactively as well as in definitions: `4 0 DO I . LOOP` runs as
   soon as the LOOP is typed, and a structure can span lines.
