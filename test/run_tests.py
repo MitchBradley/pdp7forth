@@ -506,6 +506,47 @@ def main():
         (": d2 ['] dup execute ; 6 d2 . .", "6 6 " + ok),
     ])
 
+    # Interpretive control structures: while interpreting, IF/BEGIN/DO
+    # compile into a scratch buffer, which runs when the outermost
+    # structure closes.
+    session("interpretive control structures", [
+        ("4 0 do i . loop", "0 1 2 3 " + ok),
+        ("3 0 do 2 0 do j . i . loop loop", "0 0 0 1 1 0 1 1 2 0 2 1 " + ok),
+        ("1 if 11 . else 22 . then 0 if 11 . else 22 . then", "11 22 " + ok),
+        ("3 begin dup . 1 - dup 0= until drop", "3 2 1 " + ok),
+        ("3 begin dup while dup . 1 - repeat drop", "3 2 1 " + ok),
+        ("2 begin dup . 1 - dup 0< if drop 99 . exit then again",
+         "2 1 0 99 " + ok),
+        ("3 0 do", ok),                         # spread over lines
+        ("i .", ok),
+        ("loop 5 .", "0 1 2 5 " + ok),          # the rest of the line runs
+        ("variable h here h !", ok),
+        ("3 0 do i , loop here h @ - . h @ @ h @ 2 + @ + .", "3 2 " + ok),
+        ("here h !", ok),
+        ("3 0 do foo loop", "foo ?\r\n"),     # an error discards it
+        ("here h @ = . state @ .", "-1 0 " + ok),
+        (": sq 4 0 do i . loop ; sq", "0 1 2 3 " + ok),
+    ])
+    # Overflowing the 100-word buffer is an error that discards it.
+    filler = " ".join(["dup drop"] * 8)         # 16 cells a line
+    sim = simh.Sim(pimage, L["cold"])
+    sim.type("here .")
+    sim.type("1 if")
+    for _ in range(8):
+        sim.type(filler)
+        with sim.lock:
+            if b"full?" in sim.buf:
+                break
+    sim.type("1 2 + . state @ .")
+    sim.type("here .")
+    output, _ = sim.finish("bye\r", timeout=10)
+    lines = output.split("\r\n")
+    check("interpretive structure too big: full?",
+          [line.endswith(" dup full?") for line in lines if "full?" in line],
+          [True])
+    check("interpretive structure too big: recovered, HERE restored",
+          lines[-3:-1], ["1 2 + . state @ . 3 0  ok", lines[1]])
+
     # --- paper tape input ---
     tape = (b"\0\0\0"                      # blank leader
             b"1 2 + .\n"
@@ -620,6 +661,12 @@ def main():
     t = Turtle()            # CLEARSCREEN: back home, with a fresh list
     t.forward(-50)
     check_list("clearscreen and back", ["100 fd clearscreen 50 bk"], t)
+
+    t = Turtle()
+    for _ in range(4):
+        t.forward(100)
+        t.heading += 90
+    check_list("square typed at the keyboard", ["4 0 do 100 fd 90 rt loop"], t)
 
     t = Turtle()
     t.heading = 30

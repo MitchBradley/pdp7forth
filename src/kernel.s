@@ -453,6 +453,8 @@ comp:	0
 	lac dp
 	sad pool
 	jmp full
+	sad tbufe	" the interpretive-structure buffer is full
+	jmp full
 	dac cptr
 	lac cval
 	dac i cptr
@@ -523,6 +525,43 @@ mkhdr:	0
 	lac hadr
 	jmp i mkhdr
 
+" --- interpretive control structures ---
+" IF, BEGIN and DO used while interpreting start compiling into tbuf;
+" nesting is counted in level. When the outermost structure closes (THEN,
+" UNTIL, AGAIN, REPEAT, LOOP), the code runs at once and is discarded.
+" tbuf is separate from the dictionary so the code can compile or ALLOT
+" (e.g. "3 0 DO I , LOOP") without overwriting itself.
+lvst:	0
+	lac level
+	sza
+	jmp 1f		" already inside one: count it
+	lac state
+	sza
+	jmp i lvst	" compiling a definition: nothing to do
+	lac dp
+	dac savdp
+	lac tbufp
+	dac dp
+	lac m1
+	dac state
+1:	isz level
+	jmp i lvst
+
+lvend:	lac level
+	sna
+	jmp next	" ordinary compilation
+	tad m1
+	dac level
+	sza
+	jmp next	" still inside an outer structure
+	lac c.exit
+	jms comp
+	lac savdp
+	dac dp
+	dzm state
+	lac tbufp	" run tbuf (a CAL cell is its bare address), as
+	jmp xrun	" EXECUTE would
+
 " --- errors: print the last token and a message, then abort ---
 full:	lac m.full
 	jmp error
@@ -540,7 +579,13 @@ error:	dac msgp
 " abort: stop reading tape, abandon any definition in progress, empty both
 " stacks, and restart the interpreter. quit leaves the data stack alone.
 abort:	dzm tapein	" an error while loading tape: back to the keyboard
-	lac cdp
+	lac level	" abandon an interpretive control structure
+	sna
+	jmp 2f
+	lac savdp
+	dac dp
+	dzm level
+2:	lac cdp
 	sna
 	jmp 1f
 	dac dp		" discard the partial definition
@@ -683,6 +728,8 @@ lptr:	0
 htag:	0		" mkhdr
 hadr:	0
 cdp:	0		" header of the definition being compiled, else 0
+level:	0		" interpretive control structure nesting
+savdp:	0		" dp while compiling into tbuf
 msgp:	0
 pstr:	0
 ttc:	0
@@ -697,6 +744,8 @@ pool:	020000		" lowest literal-pool entry; the pool grows down
 tibp:	tib
 tibe:	tib+0120
 dlp:	dlbuf
+tbufp:	tbuf
+tbufe:	tbuf+0144
 ds0:	dstack-1	" SP when empty
 dstop:	dstack+040	" one past the top slot
 rs0:	rstack-1	" RP when empty
@@ -761,6 +810,9 @@ tag.var=	003000
 " it (the 512-word span). It starts as just a stop.
 dlbuf:	02000
 	.=.+01777
+
+" Interpretive control structures compile here (see lvst).
+tbuf:	.=.+0144	" 100 words
 
 " === Kernel dictionary ===
 " Primitive bodies end with "jmp next". Branch-type words take an inline
@@ -1157,7 +1209,7 @@ h.exec:	0160000+tag.prim+h.exec-h.xerr-1	" EXECUTE
 	0457045
 execute:	jms pop.sp
 	jms mkcell
-	dac xcell
+xrun:	dac xcell	" (also entered from lvend with a cell to run)
 	lac 010
 	dac i 011	" push IP; the EXIT cell after xcell pops it
 	lac xcellp
@@ -1306,7 +1358,8 @@ create:	lac o3000	" tag.var
 " IF ( -- orig )
 h.if:	0050000+tag.prim+h.if-h.create-1	" IF
 	0514600
-if:	lac c.qbran
+if:	jms lvst
+	lac c.qbran
 	jms comp
 	lac dp
 	dac i 012
@@ -1322,7 +1375,7 @@ then:	jms pop.sp
 	lac dp
 	tad m1
 	dac i t5
-	jmp next
+	jmp lvend
 
 " ELSE ( orig1 -- orig2 )
 h.else:	0110000+tag.prim+h.else-h.then-1	" ELSE
@@ -1345,7 +1398,8 @@ else:	lac c.bran
 " BEGIN ( -- dest )
 h.begin:	0130000+tag.prim+h.begin-h.else-1	" BEGIN
 	0424547
-begin:	lac dp
+begin:	jms lvst
+	lac dp
 	dac i 012
 	jmp next
 
@@ -1363,7 +1417,7 @@ cbr:	jms comp	" compile the branch cell, then (dest - 1)
 	jms pop.sp
 	tad m1
 	jms comp
-	jmp next
+	jmp lvend
 
 " WHILE ( dest -- orig dest )
 h.while:	0130000+tag.prim+h.while-h.again-1	" WHILE
@@ -1393,7 +1447,8 @@ repeat:	lac c.bran
 " DO ( -- dest )
 h.do:	0050000+tag.prim+h.do-h.repeat-1	" DO
 	0445700
-do:	lac c.xdo
+do:	jms lvst
+	lac c.xdo
 	jms comp
 	lac dp
 	dac i 012

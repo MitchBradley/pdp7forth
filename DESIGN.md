@@ -216,6 +216,17 @@ As built (not separately confirmed):
 - Also built: `COMPILE,`, LITERAL, `,`, HERE, ALLOT, STATE, `[`, `]`, IMMEDIATE, the compiling control words, `(` and `\` comments, CR, QUIT, and BYE (halts; CONTINUE resumes).
 - J is a primitive, like I: the enclosing loop's cells are right under the inner loop's on the return stack.
 
+## Interpretive control structures
+
+**[decided]** (Mitch's invention, as in Open Firmware)
+- IF, BEGIN and DO used while interpreting start compiling into a scratch buffer, counting nesting levels. When the outermost structure closes (THEN, UNTIL, AGAIN, REPEAT, LOOP), the compiled code runs at once and is discarded, and interpretation carries on with the rest of the line. A structure can span lines. Inside a colon definition nothing changes.
+
+As built (not separately confirmed):
+- The scratch buffer is 100 words in the kernel, not HERE, so the code can compile or ALLOT into the dictionary (`3 0 DO I , LOOP`) without overwriting itself. `dp` points into it while compiling and is restored before the code runs.
+- It runs through EXECUTE's machinery: its bare address is a CAL cell.
+- An error, or overflowing the buffer (`full?`), discards the structure and restores `dp`.
+- Literals compiled into it still go to the literal pool, which never shrinks, so each new literal value used interpretively costs a pool word.
+
 ## Prelude and strings
 
 **[decided]**

@@ -108,6 +108,9 @@ FOO FOO ?
   type `set tti 7b`, then `c` to continue.
 - **Editing.** Backspace or Delete erases the last character. There's no
   other line editing.
+- **Control structures at the prompt.** IF, DO and BEGIN work
+  interactively as well as in definitions: `4 0 DO I . LOOP` runs as
+  soon as the LOOP is typed, and a structure can span lines.
 - **Looking around.** `WORDS` lists the dictionary. A header keeps only a
   name's length and first three characters, so longer names show as
   those three plus an underscore per missing character (`EXIT` shows as
@@ -227,8 +230,8 @@ source file, `lib/turtle.fs`, loaded from paper tape.
 3. Draw:
 
    ```
+   4 0 DO 200 FD 90 RT LOOP
    : SQ 4 0 DO 200 FD 90 RT LOOP ;
-   SQ
    : FLOWER 8 0 DO SQ 45 RT LOOP ;
    CS FLOWER
    : STAR 5 0 DO 400 FD 144 RT LOOP ;
