@@ -87,7 +87,6 @@ next:	xct i 010	" pre-increment IP, execute the thread cell
 pop.rp:	0
 	lac 011
 	dac t2
-	lac 011
 	tad m1
 	dac 011
 	lac i t2
@@ -96,7 +95,6 @@ pop.rp:	0
 pop.sp:	0
 	lac 012
 	dac t2
-	lac 012
 	tad m1
 	dac 012
 	lac i t2

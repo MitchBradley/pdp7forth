@@ -8,7 +8,7 @@ Status markers: **[decided]** = settled by Mitch; **[proposed]** = worked out in
 
 - 18-bit words, 8K core; memory-reference instructions are 4-bit opcode + 1 indirect bit + 13-bit address.
 - Auto-index registers at 10–17 (octal) pre-increment when used indirectly.
-- Single accumulator (AC) plus Link; MQ only with EAE (EAE availability **[open]**).
+- Single accumulator (AC) plus Link; MQ only with EAE. EAE is assumed **[decided]**.
 - JMS stores the return address in the target word and jumps to target+1 (not reentrant).
 - Indirection is single-level and uses only the low 13 bits of the pointer word.
 - TAD is two's complement add; ADD is ones' complement.
@@ -110,7 +110,6 @@ Consequences of this scheme:
 pop.sp, 0
         lac 12
         dac t2
-        lac 12
         tad m1
         dac 12
         lac i t2      / AC = popped value
@@ -119,12 +118,18 @@ pop.sp, 0
 
 - EXIT is an ordinary primitive-tag word, not a spare tag. Every tag's cell is one instruction, and EXIT needs several, so a dedicated tag would still have to JMP to shared code. Its body is `jms pop.rp; dac 10; jmp next`. There is no `tad m1`, unlike nest: the popped value is the address of the caller's CAL cell, and NEXT's pre-increment resumes at the cell after it.
 
+## I/O
+
+**[decided]**
+- Console teletype only, polled with interrupts off: `ksf`/`krb` in, `tsf`/`tls` out.
+- 7-bit ASCII. Input strips bit 8, since a real Model 33 sends it set.
+- Case folding happens only on dictionary lookup.
+- No paper tape for now.
+
 ## Open issues
 
 - **[open]** EXECUTE with colon words. Nest reads the cell through `C(10)`, so EXECUTE can't simply XCT a colon token. Proposal: the xt is the header address p. EXECUTE builds the cell in a scratch location followed by an EXIT cell, pushes IP, and points IP at the scratch cell. That works for every tag.
 - **[open]** Uses for the 4 spare tags. (EXIT does not use one; see Stacks below.)
-- **[open]** Whether EAE is assumed.
-- **[open]** Target I/O: console teletype, paper tape.
 
 ## Implementation notes
 
