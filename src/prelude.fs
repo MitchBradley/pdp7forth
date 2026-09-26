@@ -22,3 +22,10 @@
 : space bl emit ;
 : spaces begin dup 0> while space 1- repeat drop ;
 : ['] ' [ ' literal compile, ] ; immediate
+
+\ Strings: one character per word, so a character address is a cell
+\ address. No CHARS: it would collide with CHAR+ (and it's a no-op).
+: c@ @ ;   : c! ! ;   : c, , ;   : char+ 1+ ;
+: count dup 1+ swap c@ ;
+: type begin dup 0> while over c@ emit 1- swap 1+ swap repeat 2drop ;
+: [char] char [ ' literal compile, ] ; immediate

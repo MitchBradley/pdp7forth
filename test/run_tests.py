@@ -185,6 +185,36 @@ def png_pixels(path):
     return rows
 
 
+# test/run_tests.py --new (make test-new) runs only new_features(): the
+# tests for work in progress, without the full regression. They also run
+# as part of the full suite. Move them into main() once they've settled.
+NEW_ONLY = "--new" in sys.argv[1:]
+
+
+def new_features(session, ok):
+    session("S\" and TYPE", [
+        ('s" hello" type', "hello" + ok),
+        ('s" " nip .', "0 " + ok),
+        ('s" ab" drop dup c@ emit 1+ c@ emit', "ab" + ok),
+        (': g s" hi there" type ; g g', "hi therehi there" + ok),
+        (': n s" abc" nip ; n .', "3 " + ok),
+        (': e s" " nip ; e .', "0 " + ok),
+        (': t s" x" type 7 . s" yz" type ; t', "x7 yz" + ok),
+        ('2 0 do s" ab" type loop', "abab" + ok),
+        ('s" first" s" second" type type', "secondsecon" + ok),
+        (': u s" open', ok),
+        ("; u type", "open" + ok),
+    ])
+    session("characters", [
+        ("char A . char abc .", "65 97 " + ok),
+        (": ca [char] Z emit [char] q . ; ca", "Z113 " + ok),
+        ("1 0 do [char] w emit loop", "w" + ok),
+        ("create cs 3 c, 97 c, 98 c, 99 c, cs count type", "abc" + ok),
+        ("cs count . char+ c@ .", "3 98 " + ok),
+        ("variable cv 120 cv c! cv c@ emit", "x" + ok),
+    ])
+
+
 def main():
     L, image = assemble()
     failures = 0
@@ -196,6 +226,44 @@ def main():
         fmt = (lambda v: f"{v:06o}") if isinstance(want, int) else repr
         print(f"{'PASS' if ok else 'FAIL'}: {desc}: got {fmt(got)}"
               + ("" if ok else f", want {fmt(want)}"))
+
+    # --- interactive sessions, on an image with the prelude compiled in ---
+    ptext = open(os.path.join(ROOT, "src/prelude.fs")).read()
+    prelude.check_names(open(os.path.join(ROOT, "src/kernel.s")).read(),
+                        ptext)
+    pimage, _ = prelude.build(L["cold"], image, ptext)
+    pword = dict(pimage)
+
+    def session(desc, exchanges, examine=(), tape=None):
+        """exchanges: (line, response) pairs; response follows the echo,
+        and for TAPE includes everything read from the tape. Each line is
+        typed once the transcript so far has appeared."""
+        want = "PDP-7 FORTH\r\n"
+        sim = simh.Sim(pimage, L["cold"], examine=[SP, RP] + list(examine),
+                       tape=tape)
+        try:
+            for line, resp in exchanges:
+                sim.send(line + "\r")
+                want += f"{line} {resp}"
+                sim.wait_for(re.escape(want.encode("latin-1")), timeout=5)
+        except RuntimeError:
+            pass  # the transcript check below reports the difference
+        want += "bye "
+        try:
+            output, values = sim.finish("bye\r", timeout=10)
+        except RuntimeError as e:
+            check(f"session {desc}", str(e), want)
+            return Result()
+        r = Result(values)
+        r.output = output
+        check(f"session {desc}", r.output, want)
+        return r
+
+    ok = " ok\r\n"
+    new_features(session, ok)
+    if NEW_ONLY:
+        print(f"\n{'FAILED' if failures else 'OK'}: {failures} failure(s)")
+        sys.exit(1 if failures else 0)
 
     def stack_after(dep_stack, deposits, start, n_out, stdin=""):
         """Run with dep_stack preloaded; return (stack contents, result)."""
@@ -369,38 +437,6 @@ def main():
     check("number octal", numbers("17 8 -10", base=8), [ok(15), bad, ok(-8)])
     check("number hex", numbers("ff FF 1a G", base=16),
           [ok(255), ok(255), ok(26), bad])
-
-    # --- interactive sessions, on an image with the prelude compiled in ---
-    ptext = open(os.path.join(ROOT, "src/prelude.fs")).read()
-    prelude.check_names(open(os.path.join(ROOT, "src/kernel.s")).read(),
-                        ptext)
-    pimage, _ = prelude.build(L["cold"], image, ptext)
-    pword = dict(pimage)
-
-    def session(desc, exchanges, examine=(), tape=None):
-        """exchanges: (line, response) pairs; response follows the echo,
-        and for TAPE includes everything read from the tape. Each line is
-        typed once the transcript so far has appeared."""
-        want = "PDP-7 FORTH\r\n"
-        sim = simh.Sim(pimage, L["cold"], examine=[SP, RP] + list(examine),
-                       tape=tape)
-        try:
-            for line, resp in exchanges:
-                sim.send(line + "\r")
-                want += f"{line} {resp}"
-                sim.wait_for(re.escape(want.encode("latin-1")), timeout=5)
-        except RuntimeError:
-            pass  # the transcript check below reports the difference
-        want += "bye "
-        try:
-            output, values = sim.finish("bye\r", timeout=10)
-        except RuntimeError as e:
-            check(f"session {desc}", str(e), want)
-            return Result()
-        r = Result(values)
-        r.output = output
-        check(f"session {desc}", r.output, want)
-        return r
 
     ok = " ok\r\n"
     r = session("arithmetic and output", [

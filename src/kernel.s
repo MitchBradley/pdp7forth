@@ -730,6 +730,7 @@ hadr:	0
 cdp:	0		" header of the definition being compiled, else 0
 level:	0		" interpretive control structure nesting
 savdp:	0		" dp while compiling into tbuf
+sqp:	0		" S"
 msgp:	0
 pstr:	0
 ttc:	0
@@ -746,6 +747,7 @@ tibe:	tib+0120
 dlp:	dlbuf
 tbufp:	tbuf
 tbufe:	tbuf+0144
+sbufp:	sbuf
 ds0:	dstack-1	" SP when empty
 dstop:	dstack+040	" one past the top slot
 rs0:	rstack-1	" RP when empty
@@ -790,6 +792,7 @@ c.qbran:	jmp qbran
 c.xdo:	jmp xdo
 c.xloop:	jmp xloop
 c.xdotq:	jmp xdotq
+c.xsq:	jmp xsq
 o400k:	0400000
 om40:	-040
 om60:	-060
@@ -813,6 +816,10 @@ dlbuf:	02000
 
 " Interpretive control structures compile here (see lvst).
 tbuf:	.=.+0144	" 100 words
+
+" S" while interpreting leaves its string here. A line holds at most 80
+" characters, so the string can't overflow it.
+sbuf:	.=.+0120
 
 " === Kernel dictionary ===
 " Primitive bodies end with "jmp next". Branch-type words take an inline
@@ -1710,7 +1717,69 @@ h.dsply:	0160000+tag.var+h.dsply-h.dlist-1	" DISPLAY
 	0445163
 display:	0
 
-latest:	h.dsply		" head of the dictionary chain
+" (S") ( -- c-addr u )  the string that follows inline: a count, then one
+" character per word. Resume after it.
+h.xsq:	0060000+tag.prim+h.xsq-h.dsply-1	" (S"
+	0106302
+xsq:	lac 010
+	tad d1
+	dac t5		" -> count
+	tad d1
+	dac i 012	" c-addr
+	lac i t5
+	dac i 012	" u
+	tad t5
+	dac 010		" the last character; NEXT steps past it
+	jmp next
+
+" S" ( "ccc<quote>" -- c-addr u )  compiling (a definition or an
+" interpretive control structure): compile (S") and the string inline.
+" Interpreting: copy it to sbuf, which the next interpreted S" reuses.
+h.sq:	0050000+tag.prim+h.sq-h.xsq-1	" S"
+	0630200
+sq:	lac state
+	sna
+	jmp 3f
+	lac c.xsq
+	jms comp
+	lac dp
+	dac sqp		" -> the count, filled in at the end
+	jms comp
+1:	jms sch
+	jmp 2f
+	jms comp
+	jmp 1b
+2:	lac sqp
+	cma
+	tad dp		" dp - sqp - 1
+	dac i sqp
+	jmp next
+3:	lac sbufp
+	dac sqp
+	dac i 012	" c-addr
+4:	jms sch
+	jmp 5f
+	dac i sqp
+	isz sqp
+	jmp 4b
+5:	lac sbufp
+	cma
+	tad sqp
+	tad d1		" sqp - sbuf
+	dac i 012	" u
+	jmp next
+
+" CHAR ( "name" -- char )  the first character of the next token.
+h.char:	0100000+tag.prim+h.char-h.sq-1	" CHAR
+	0435041
+char:	jms parse
+	sna
+	jmp noname
+	lac i wptr
+	dac i 012
+	jmp next
+
+latest:	h.char		" head of the dictionary chain
 
 " --- stacks and terminal input buffer (DESIGN.md, Memory) ---
 rstack:	.=.+040		" 32 words

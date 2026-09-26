@@ -45,7 +45,11 @@ endif
 test:
 	python3 test/run_tests.py
 
+# Only the tests for work in progress (new_features in test/run_tests.py).
+test-new:
+	python3 test/run_tests.py --new
+
 clean:
 	rm -rf build
 
-.PHONY: all run test clean
+.PHONY: all run test test-new clean

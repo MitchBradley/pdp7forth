@@ -231,11 +231,15 @@ As built (not separately confirmed):
 
 **[decided]**
 - Words that are easy to write in Forth live in `src/prelude.fs`. At build time `tools/prelude.py` boots the kernel under SimH, types the prelude at it, and saves memory as the image (`build/forth.img`). The source text takes no space on the target. A prelude line that doesn't answer ` ok` fails the build.
-- Strings are packed two 9-bit characters per word, ended by a zero word (so a zero half-word is skipped on output). `."` compiles `(.")` followed by the string inline; `(.")` prints it and resumes after the terminator.
+- Kernel messages and `."` strings are packed two 9-bit characters per word, ended by a zero word (so a zero half-word is skipped on output). `."` compiles `(.")` followed by the string inline; `(.")` prints it and resumes after the terminator.
+- Character-addressed strings (S", TYPE, COUNT, C@ and friends) are one character per word, so a character address is a cell address. C@ and C! are @ and !, and CHAR+ is 1+. That spends space for simplicity: no half-word addressing, and a string can be handled with ordinary cell words.
+- S" while interpreting copies the string into a kernel buffer (sbuf, 80 words, before the dictionary) and pushes c-addr u. The next interpreted S" overwrites it. While compiling, including inside an interpretive control structure, it compiles `(S")`, a count cell, and the characters inline; `(S")` pushes c-addr u and resumes after them.
 
 As built (not separately confirmed):
 - The prelude defines TRUE FALSE BL DECIMAL HEX OCTAL 1+ 1- CELL+ ?DUP NIP TUCK ROT -ROT 2DUP 2DROP > <> 0> 0<> ABS MIN MAX +! SPACE SPACES ['].
 - There's no CELLS: a cell is one word, and CELLS would collide with CELL+ (same length and first three characters, which is all a header stores).
+- The kernel has `(S")`, S" and CHAR. The prelude adds C@ C! C, CHAR+ COUNT TYPE [CHAR]. There's no CHARS (a no-op here), which would collide with CHAR+.
+- A string that reaches the end of the line without a closing `"` ends there, for S" as for `."`.
 
 ## Name collisions and WORDS
 
@@ -245,7 +249,7 @@ As built (not separately confirmed):
 
 As built (not separately confirmed):
 - WORDS prints the stored characters of each name, then one underscore per character that wasn't stored (`EXIT` shows as `EXI_`), so the listing shows each name's true length. It starts on a new line and breaks lines at about 60 columns, since a Model 33 doesn't wrap.
-- `."` is compile-only. S", TYPE, and character-addressed strings (C@ and friends) aren't built; packed strings make them a design question of their own.
+- `."` always compiles. That works in a definition or an interpretive control structure; typed bare at the prompt it lays the string down in the dictionary, unused. S" works either way.
 
 ## Open issues
 

@@ -72,7 +72,12 @@ look.
 ```
 make          # assemble the kernel, then compile src/prelude.fs into it
 make test     # run the test suite under SimH
+make test-new # run only the tests for work in progress
 ```
+
+`make test-new` runs `new_features()` in `test/run_tests.py`, a short
+list of tests for whatever is being worked on, so they can be checked
+without the full suite. The full suite runs them too.
 
 `make test PDP7_DISPLAY=path/to/open-simh/pdp7` also checks a turtle
 drawing on the emulated display (see Turtle graphics). It's skipped
@@ -111,6 +116,11 @@ FOO FOO ?
 - **Control structures at the prompt.** IF, DO and BEGIN work
   interactively as well as in definitions: `4 0 DO I . LOOP` runs as
   soon as the LOOP is typed, and a structure can span lines.
+- **Strings.** `S" text"` gives a string's address and length, one
+  character per word, and `TYPE` prints it: `S" hello" TYPE`. At the
+  prompt the string goes into a buffer that the next `S"` reuses; in a
+  definition it's compiled in. `CHAR A` and, in definitions, `[CHAR] A`
+  give a character's code. `." text"` prints text from a definition.
 - **Looking around.** `WORDS` lists the dictionary. A header keeps only a
   name's length and first three characters, so longer names show as
   those three plus an underscore per missing character (`EXIT` shows as
