@@ -151,6 +151,24 @@ As built (not separately confirmed):
 - The reader is program-paced (`rsa` asks for one frame; `rsf`/`rrb` wait for and read it), so unlike the keyboard it can't overrun.
 - The PDP-7 has no reader-empty status bit (the PDP-9 and PDP-15 do). A tape with no ^D leaves the kernel waiting for more tape, as it would when real tape runs out; SimH's reader STOP_IOE register can make it halt with "PTR end of file" instead.
 
+## Graphics
+
+**[decided]**
+- The display is the Type 340, as emulated by Open SIMH (SimH 3.8 has none; its display IOTs are no-ops, so graphics code runs there invisibly). The 340 is a display processor: `700604` loads its address counter from AC and starts it, and it runs a display list from core until a stop; `700601` skips if it has stopped.
+- The kernel reserves a 1024-word display list, DLIST, below 4K (the 340's address counter is 12 bits). It sits before the dictionary headers, because a header can't link across it (the 512-word span).
+- Refresh: while waiting for a key, `getc` restarts the 340 at DLIST whenever the variable DISPLAY is set and the 340 has stopped. The picture stays lit at the keyboard and fades during long computations.
+- Turtle graphics lives in `lib/turtle.fs`, loaded with TAPE: FORWARD/FD, BACK/BK, RIGHT/RT, LEFT/LT, PENUP/PU, PENDOWN/PD, HOME, CLEARSCREEN/CS, with Logo's conventions. Angles are degrees, through a 91-entry sine table (sin × 16384).
+- `*/` is in the kernel, using the EAE's 36-bit MUL and DIV, so `n × sine` can't overflow before the divide.
+
+As built (not separately confirmed):
+- Display list: a parameter word (point mode, scale 1, full intensity), point words setting X and Y, then one vector word per step of at most 127 pixels, then an escaping vector and a stop. Appending writes the new terminator before the word that replaces the old one, since the 340 may be running the list.
+- The turtle's position is kept in 1/64 pixel, so rounding doesn't accumulate; a move becomes N vector steps whose sizes add up exactly.
+- A move that would leave the 1024 × 1024 screen is refused (`off screen?`), since a vector hitting the edge would make the 340 escape to parameter mode and misread the rest of the list. A full list refuses further drawing (`display list full?`). Both then QUIT.
+- CLEARSCREEN homes the turtle and starts a new list; HOME draws if the pen is down, as in Logo. The turtle itself isn't drawn.
+- `cold` runs the 340 once over the list's initial stop word, because until it has run once it doesn't report "stopped".
+- Open SIMH's pdp7 enables G2OUT (the Graphics-2, pdp7-unix's second terminal) at device 05, which conflicts with the 340; `make run GRAPHICS=1` disables it and enables DPY.
+- Open SIMH can `screenshot` its display with SDL's dummy video driver, so `make test PDP7_DISPLAY=...` checks an actual drawing.
+
 ## Memory
 
 **[decided]**
@@ -224,10 +242,10 @@ As built (not separately confirmed):
 ## Implementation notes
 
 `src/kernel.s` holds the whole kernel: NEXT, nest, `find`, the stack
-helpers, the outer interpreter and compiler support, and 71 dictionary
-entries. `src/end.s` must be assembled last; its label marks the start
-of free space. Kernel, stacks, TIB and number buffer end at 02423
-(1299 words).
+helpers, the outer interpreter and compiler support, the display list,
+and the kernel's dictionary. `src/end.s` must be assembled last; its
+label marks the start of free space (currently 04756, about 2,500
+words, 1K of it the display list).
 
 `make` builds `build/forth.img` (kernel plus compiled prelude) and a
 SimH script for it; `make run` boots it in SimH (`pdp7`), and

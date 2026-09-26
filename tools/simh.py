@@ -26,13 +26,15 @@ PDP7 = os.environ.get("PDP7", "pdp7")  # the SimH PDP-7 binary
 MASK = 0o777777
 TTI_TIME = 30000
 RESPONSE_END = re.compile(rb"(ok|\?)\r\n$")
-BANNER = re.compile(r"PDP-7 simulator V[\d.\-]+\n")
+BANNER = re.compile(r"PDP-7 simulator [^\n]*\n")
 
 
 class Sim:
     def __init__(self, image, start, deposits=(), examine=(), setup=(),
-                 tape=None):
-        """tape: bytes to mount in the paper-tape reader (see mktape.py)."""
+                 tape=None, after=()):
+        """tape: bytes to mount in the paper-tape reader (see mktape.py).
+        setup: SimH commands before starting; after: commands once the
+        machine halts (for example "screenshot file.png")."""
         cmds = ["set cpu 8k", "set cpu eae", "set tti fdx", "set tti 8b",
                 f"d tti time {TTI_TIME}"]
         self.tapefile = None
@@ -45,6 +47,7 @@ class Sim:
         cmds += [f"d {a:o} {w & MASK:o}" for a, w in image]
         cmds += [f"d {a:o} {w & MASK:o}" for a, w in deposits]
         cmds.append(f"go {start:o}")
+        cmds += list(after)
         cmds.append("examine ac")
         cmds += [f"examine {a:o}" for a in examine]
         cmds.append("exit")
@@ -146,7 +149,10 @@ class Sim:
             key = m.group(1)
             values["ac" if key == "AC" else int(key, 8)] = int(m.group(2), 8)
         console = BANNER.sub("", out)
-        console = console[:console.index("\nHALT instruction")]
-        if console.endswith("\n"):  # SimH's, before its HALT message
+        console = console[:console.index("HALT instruction")]
+        # SimH's own messages end in bare LF (the kernel always sends CR
+        # LF), and versions differ in the blank lines around them.
+        console = console.lstrip("\n")
+        while console.endswith("\n") and not console.endswith("\r\n"):
             console = console[:-1]
         return console, values

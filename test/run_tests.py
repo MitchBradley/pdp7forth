@@ -5,10 +5,13 @@ Addresses come from the assembler listing, so tests don't rot when code
 moves. Each test gets a fresh simulator with the image deposited, runs
 from a label until it halts, and checks memory, AC, and console output.
 """
+import math
 import os
 import re
+import struct
 import subprocess
 import sys
+import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD = os.path.join(ROOT, "build")
@@ -18,6 +21,7 @@ SRCS = [os.path.join(ROOT, f) for f in (
     "src/end.s")]
 SP, RP = 0o12, 0o11
 sys.path.insert(0, os.path.join(ROOT, "tools"))
+import mktape  # noqa: E402
 import prelude  # noqa: E402
 import simh  # noqa: E402
 MASK = 0o777777
@@ -73,6 +77,94 @@ def run(image, deposits, start, examine, stdin=""):
     result = Result(values)
     result.output = output
     return result
+
+
+# --- a model of lib/turtle.fs, with the same integer arithmetic ---
+SINES = [round(16384 * math.sin(math.radians(k))) for k in range(91)]
+
+
+def tdiv(a, b):
+    """Forth's / and */: truncate toward zero."""
+    q = abs(a) // abs(b)
+    return q if (a < 0) == (b < 0) else -q
+
+
+def tsin(deg):
+    deg %= 360
+    s180 = lambda d: SINES[180 - d] if d > 90 else SINES[d]
+    return s180(deg) if deg < 180 else -s180(deg - 180)
+
+
+class Turtle:
+    def __init__(self):
+        self.x = self.y = 512 * 64
+        self.heading = 0
+        self.pen = True
+        self.clear()
+
+    def clear(self):
+        px, py = self.px(self.x), self.px(self.y)
+        self.words = [0o20117, 0o20000 | px, 0o300000 | py]
+
+    @staticmethod
+    def px(fixed):
+        return tdiv(fixed + 32, 64)
+
+    def vword(self, dx, dy):
+        w = (0o100000 | -dy << 8) if dy < 0 else dy << 8
+        w += (0o200 | -dx) if dx < 0 else dx
+        return w | (0o200000 if self.pen else 0)
+
+    def forward(self, n):
+        nx = self.x + tdiv(n * tsin(self.heading), 256)
+        ny = self.y + tdiv(n * tsin(self.heading + 90), 256)
+        dx, dy = self.px(nx) - self.px(self.x), self.px(ny) - self.px(self.y)
+        steps = (max(abs(dx), abs(dy)) + 126) // 127
+        part = lambda k: (tdiv(k * dx, steps), tdiv(k * dy, steps))
+        for k in range(steps):
+            (x1, y1), (x0, y0) = part(k + 1), part(k)
+            self.words.append(self.vword(x1 - x0, y1 - y0))
+        self.x, self.y = nx, ny
+
+    def display_list(self):
+        return self.words + [0o400000, 0o2000]
+
+
+def png_pixels(path):
+    """Decode an 8-bit RGBA, non-interlaced PNG (SimH's screenshots) into
+    rows of brightness values."""
+    data = open(path, "rb").read()
+    pos, idat = 8, b""
+    while pos < len(data):
+        n, = struct.unpack(">I", data[pos:pos + 4])
+        kind, body = data[pos + 4:pos + 8], data[pos + 8:pos + 8 + n]
+        if kind == b"IHDR":
+            width, height, depth, ctype = struct.unpack(">IIBB", body[:10])
+            assert (depth, ctype) == (8, 6), "expected 8-bit RGBA"
+        elif kind == b"IDAT":
+            idat += body
+        pos += 12 + n
+    raw, bpp, stride = zlib.decompress(idat), 4, width * 4
+    rows, prev = [], bytearray(stride)
+    for r in range(height):
+        f, line = raw[r * (stride + 1)], bytearray(
+            raw[r * (stride + 1) + 1:(r + 1) * (stride + 1)])
+        for i in range(stride):
+            a = line[i - bpp] if i >= bpp else 0
+            b, c = prev[i], prev[i - bpp] if i >= bpp else 0
+            if f == 1:
+                line[i] = (line[i] + a) & 255
+            elif f == 2:
+                line[i] = (line[i] + b) & 255
+            elif f == 3:
+                line[i] = (line[i] + (a + b) // 2) & 255
+            elif f == 4:
+                pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+                pr = a if pa <= pb and pa <= pc else b if pb <= pc else c
+                line[i] = (line[i] + pr) & 255
+        rows.append([max(line[i:i + 3]) for i in range(0, stride, 4)])
+        prev = line
+    return rows
 
 
 def main():
@@ -462,6 +554,91 @@ def main():
           [n for n in ("[']", "WOR__", "DUP", "?BR____", "EXI_")
            if n not in names], [])
     check("WORDS: oldest last", names[-3:], ["EXI_", "ok", "bye"])
+
+    # --- turtle graphics: lib/turtle.fs, loaded from tape ---
+    turtle_src = open(os.path.join(ROOT, "lib/turtle.fs")).read()
+    prelude.check_names(open(os.path.join(ROOT, "src/kernel.s")).read(),
+                        ptext + turtle_src)
+    loaded = rb"pendown clearscreen  ok\r\n"
+    dl = L["dlbuf"]
+
+    def turtle_run(lines, examine=(), **kw):
+        sim = simh.Sim(pimage, L["cold"], tape=mktape.to_tape(turtle_src),
+                       examine=examine, **kw)
+        sim.type("tape")
+        sim.wait_for(loaded, timeout=60)
+        for line in lines:
+            sim.type(line, timeout=20)
+        output, values = sim.finish("bye\r")
+        return output.split("\r\n", 1)[1], values  # drop the banner
+
+    def check_list(desc, lines, model):
+        want = model.display_list()
+        out, mem = turtle_run(lines, examine=range(dl, dl + len(want) + 1))
+        got = [mem[a] for a in range(dl, dl + len(want))]
+        check(f"turtle {desc}: display list",
+              [f"{w:06o}" for w in got], [f"{w:06o}" for w in want])
+        return out
+
+    t = Turtle()
+    for _ in range(4):
+        t.forward(100)
+        t.heading += 90
+    check_list("square", [": sq 4 0 do 100 fd 90 rt loop ; sq"], t)
+
+    t = Turtle()
+    t.pen = False
+    t.forward(300)          # pen up; split into three steps
+    t.pen = True
+    t.heading = 45
+    t.forward(100)
+    t.heading = 45 - 150
+    t.forward(250)
+    check_list("pen up, long moves, headings",
+               ["pu 300 fd pd 45 rt 100 fd 150 lt 250 fd"], t)
+
+    t = Turtle()
+    t.forward(100)
+    t = Turtle()            # CLEARSCREEN: back home, with a fresh list
+    t.forward(-50)
+    check_list("clearscreen and back", ["100 fd clearscreen 50 bk"], t)
+
+    out, mem = turtle_run(["600 fd", "display @ ."])
+    check("turtle refuses to leave the screen", out.split("\r\n")[-3:-1],
+          ["600 fd off screen?", "display @ . -1  ok"])
+    out, mem = turtle_run([": fill 600 0 do 1 fd 1 bk loop ; fill"])
+    check("turtle stops when the display list is full",
+          out.split("\r\n")[-2],
+          ": fill 600 0 do 1 fd 1 bk loop ; fill display list full?")
+
+    # The picture itself, if an Open SIMH pdp7 with the Type 340 display is
+    # available (PDP7_DISPLAY=path; SDL's dummy video driver, no window).
+    display_sim = os.environ.get("PDP7_DISPLAY")
+    if not display_sim:
+        print("SKIP: turtle screenshot (set PDP7_DISPLAY to an Open SIMH "
+              "pdp7 with display support)")
+    else:
+        shot = os.path.join(BUILD, "turtle.png")
+        if os.path.exists(shot):
+            os.unlink(shot)
+        os.environ["SDL_VIDEODRIVER"] = "dummy"
+        saved, simh.PDP7 = simh.PDP7, display_sim
+        try:
+            turtle_run([": sq 4 0 do 200 fd 90 rt loop ; sq"],
+                       setup=["set g2out disabled", "set g2in disabled",
+                              "set dpy enabled"],
+                       after=[f"screenshot {shot}"])
+        finally:
+            simh.PDP7 = saved
+        rows = png_pixels(shot)
+        lit = lambda x, y: max(rows[1023 - y + dy][x + dx]
+                               for dx in (-1, 0, 1) for dy in (-1, 0, 1)) > 64
+        edges = [(512, 600), (600, 712), (712, 600), (600, 512)]
+        check("turtle screenshot: square's edges lit",
+              [p for p in edges if not lit(*p)], [])
+        check("turtle screenshot: inside and outside dark",
+              [p for p in ((612, 612), (300, 300), (800, 800)) if lit(*p)],
+              [])
 
     print(f"\n{'FAILED' if failures else 'OK'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)

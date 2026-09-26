@@ -155,19 +155,29 @@ absv:	0
 " frames are skipped and LF becomes CR, so host text files work as
 " tapes. ^D (EOT) ends the tape, switching back to the keyboard, and is
 " returned so accept can end a partial line. The PDP-7 has no reader-empty status, so a tape without ^D
-" leaves the kernel waiting for more tape. ^D typed at the keyboard halts,
+" leaves the kernel waiting for more tape. While waiting for a key, getc
+" restarts the Type 340 display on DLIST whenever DISPLAY is set and the
+" 340 has stopped (DESIGN.md, Graphics). ^D typed at the keyboard halts,
 " like BYE; CONTINUE resumes, and accept then treats it as ^D from tape.
 getc:	0
 	lac tapein
 	sza
 	jmp 2f
 1:	ksf
-	jmp 1b
+	jmp 5f		" no key yet: keep the display refreshed
 	krb
 	and o177	" 7-bit ASCII
 	sad o4
 	hlt		" ^D from the keyboard: halt, as BYE does
 	jmp i getc
+5:	lac display	" DISPLAY on, and the Type 340 has reached the
+	sna		" stop at the end of the display list? Start it
+	jmp 1b		" over from the top, so the drawing stays lit
+	0700601		" 340: skip if stopped
+	jmp 1b
+	lac dlp
+	0700604		" 340: load display address from AC, and start
+	jmp 1b
 2:	rsa		" read one frame, alphanumeric mode
 3:	rsf
 	jmp 3b
@@ -545,7 +555,9 @@ quit:	lac rs0
 	jmp next
 
 " cold: start here.
-cold:	lac m.hello
+cold:	lac dlp	" run the 340 once over the (initially empty) display
+	0700604		" list, so that it reports "stopped" from now on
+	lac m.hello
 	jms puts
 	jms crlf
 	jmp abort
@@ -663,6 +675,7 @@ wlen:	0		" its length
 nacc:	0
 nneg:	0
 qsgn:	0
+sdc:	0		" */
 cval:	0		" comp
 cptr:	0
 lval:	0		" lit
@@ -683,6 +696,7 @@ dp:	end		" next free dictionary word
 pool:	020000		" lowest literal-pool entry; the pool grows down
 tibp:	tib
 tibe:	tib+0120
+dlp:	dlbuf
 ds0:	dstack-1	" SP when empty
 dstop:	dstack+040	" one past the top slot
 rs0:	rstack-1	" RP when empty
@@ -740,6 +754,13 @@ tag.colon=	0
 tag.prim=	001000
 tag.const=	002000
 tag.var=	003000
+
+" --- Type 340 display list (DLIST) ---
+" 1024 words, below 4K as the 340's 12-bit address counter requires. It
+" sits here, before the dictionary, because a header can't link across
+" it (the 512-word span). It starts as just a stop.
+dlbuf:	02000
+	.=.+01777
 
 " === Kernel dictionary ===
 " Primitive bodies end with "jmp next". Branch-type words take an inline
@@ -1583,7 +1604,58 @@ eot:	dzm tapein
 	dac inp
 	jmp next
 
-latest:	h.eot		" head of the dictionary chain
+" */ ( a b c -- a*b/c )  the product is 36 bits (EAE MUL into AC:MQ), so
+" it can't overflow before the divide (EAE DIV). Truncates toward zero.
+h.stsl:	0040000+tag.prim+h.stsl-h.eot-1	" */
+	0121700
+stsl:	jms pop.sp	" c
+	dac sdc
+	jms bin		" AC = b, t3 -> a
+	dac t4
+	xor i t3
+	xor sdc
+	dac qsgn	" sign bit: the result's sign
+	lac t4
+	jms absv
+	dac 1f
+	lac i t3
+	jms absv
+	cll
+	mul		" AC:MQ = |a| * |b|
+1:	0
+	dac t4		" high half
+	lac sdc
+	jms absv
+	dac 2f
+	lac t4
+	cll
+	div		" MQ = AC:MQ / |c|
+2:	0
+	lacq
+	dac t4
+	lac qsgn
+	sma
+	jmp 3f
+	lac t4
+	cma
+	tad d1
+	skp
+3:	lac t4
+	dac i t3
+	jmp next
+
+" DLIST ( -- addr )  the 1024-word Type 340 display list (below 4K, as the
+" 340's 12-bit address counter requires). The 340 runs it from the top.
+h.dlist:	0120000+tag.const+h.dlist-h.stsl-1	" DLIST
+	0445451
+	dlbuf
+
+" DISPLAY ( -- addr )  nonzero: keep the 340 refreshing DLIST.
+h.dsply:	0160000+tag.var+h.dsply-h.dlist-1	" DISPLAY
+	0445163
+display:	0
+
+latest:	h.dsply		" head of the dictionary chain
 
 " --- stacks and terminal input buffer (DESIGN.md, Memory) ---
 rstack:	.=.+040		" 32 words

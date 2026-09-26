@@ -74,6 +74,10 @@ make          # assemble the kernel, then compile src/prelude.fs into it
 make test     # run the test suite under SimH
 ```
 
+`make test PDP7_DISPLAY=path/to/open-simh/pdp7` also checks a turtle
+drawing on the emulated display (without opening a window). It's
+skipped otherwise.
+
 `make` runs SimH once to compile the prelude, so SimH is needed even
 to build.
 
@@ -187,11 +191,58 @@ reread it.
   Ctrl-E, `attach ptr` any file that contains a ^D, and `c`. Forth reads
   the ^D and returns to the keyboard.
 
+## Turtle graphics
+
+Open SIMH (version 4, including Homebrew's `open-simh`) emulates the
+PDP-7's Type 340 display in a window; SimH 3.8 doesn't have it. Turtle
+graphics comes as a Forth source file, loaded from tape:
+
+```
+make run TAPE=lib/turtle.fs GRAPHICS=1
+```
+
+`GRAPHICS=1` turns the display on (and disables the Graphics-2 device,
+which otherwise claims the same device number). Type `TAPE` to load the
+turtle, then draw:
+
+```
+: SQUARE 4 0 DO 200 FD 90 RT LOOP ;
+SQUARE
+: STAR 5 0 DO 400 FD 144 RT LOOP ;
+PU 200 BK 90 LT 200 FD 90 RT PD STAR
+```
+
+The words, with Logo's conventions (the turtle starts in the middle of
+the 1024 x 1024 screen, heading 0 is up, turns are in degrees and RIGHT
+is clockwise):
+
+| Word | Short | |
+|---|---|---|
+| `FORWARD` ( n -- ) | `FD` | move n pixels, drawing if the pen is down |
+| `BACK` ( n -- ) | `BK` | |
+| `RIGHT` ( degrees -- ) | `RT` | |
+| `LEFT` ( degrees -- ) | `LT` | |
+| `PENUP` | `PU` | |
+| `PENDOWN` | `PD` | |
+| `HOME` | | move to the middle, heading up (drawing if the pen is down) |
+| `CLEARSCREEN` | `CS` | erase, and go home |
+
+A move that would leave the screen is refused with `off screen?`. The
+drawing is kept in a display list of 1024 words (roughly a thousand
+line segments); when it's full, drawing stops with `display list full?`
+until `CLEARSCREEN`.
+
+The picture stays lit while Forth waits at the keyboard, which is when
+it restarts the display. During a long computation it fades, as it
+would have on the real machine. The drawing words also work, invisibly,
+under SimH 3.8.
+
 ## Files
 
 - `src/kernel.s`: the kernel in PDP-7 assembly.
 - `src/prelude.fs`: words written in Forth, compiled into the image at
   build time.
+- `lib/turtle.fs`: turtle graphics, to load with TAPE.
 - `DESIGN.md`: design decisions, open issues, and implementation notes.
 - `test/`: the test suite (`make test`).
 - `tools/`: build helpers. `tools/pdp7-unix` is the submodule that

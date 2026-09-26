@@ -25,18 +25,22 @@ build/forth.do: build/kernel.lst build/forth.img tools/mkdo.py
 	python3 tools/mkdo.py build/kernel.lst build/forth.img > $@
 
 # See README.md. In "run", BYE or ^D halts to the sim> prompt; type
-# "exit" there.
-# "make run TAPE=file.fs" mounts file.fs in the paper-tape reader (with
-# ^D appended); type TAPE in Forth to read it.
-ifdef TAPE
-run: build/forth.img tools/mkdo.py tools/mktape.py
-	python3 tools/mktape.py $(TAPE) build/run.ptr
-	python3 tools/mkdo.py build/kernel.lst build/forth.img build/run.ptr > build/run.do
-	$(PDP7) build/run.do
-else
-run: build/forth.do
-	$(PDP7) build/forth.do
+# "exit" there. "make run TAPE=file.fs" mounts file.fs in the paper-tape
+# reader (with ^D appended); type TAPE in Forth to read it. GRAPHICS=1
+# turns on the Type 340 display (Open SIMH only).
+RUNDO = build/forth.do
+RUNDEPS = build/forth.do
+ifneq ($(TAPE)$(GRAPHICS),)
+RUNDO = build/run.do
+RUNDEPS = build/forth.img tools/mkdo.py tools/mktape.py
 endif
+
+run: $(RUNDEPS)
+ifneq ($(TAPE)$(GRAPHICS),)
+	$(if $(TAPE),python3 tools/mktape.py $(TAPE) build/run.ptr)
+	python3 tools/mkdo.py $(if $(GRAPHICS),--display) build/kernel.lst build/forth.img $(if $(TAPE),build/run.ptr) > $(RUNDO)
+endif
+	$(PDP7) $(RUNDO)
 
 test:
 	python3 test/run_tests.py
