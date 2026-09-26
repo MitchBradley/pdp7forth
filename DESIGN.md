@@ -138,11 +138,15 @@ As built (not separately confirmed):
 **[decided]**
 - TAPE switches `accept`'s input from the keyboard to the paper-tape reader; SimH backs the reader with a host file (`attach ptr file`). Tape lines echo, as an ASR-33 prints tape as it reads it.
 - ^D (EOT, 004) ends tape input and returns to the keyboard. Mid-line it also ends that line. The tools append it (`tools/mktape.py`), so source files stay ordinary text.
+- The word EOT is a visible alternative to ^D in source files: it ends tape input, and the rest of its line is ignored.
+- ^D typed at the keyboard halts, like BYE.
 - The prelude build mounts the prelude (plus BYE) as a tape instead of typing it at the console.
 
 As built (not separately confirmed):
 - On tape, NUL frames (blank leader and trailer) and CR are skipped, and LF ends a line, so LF and CR LF files both work.
 - ^D at the start of a line just switches to the keyboard, so a file ending in LF then ^D doesn't produce an extra empty `ok` line.
+- EOT typed at the keyboard just ignores the rest of the line.
+- After a ^D halt from the keyboard, CONTINUE resumes and the ^D is then treated like one from tape (it ends a partly typed line).
 - An error while reading tape stops tape input (abort returns to the keyboard), so the rest of a broken file isn't interpreted. The reader keeps its position, so a later TAPE resumes after the failing line. A cold start also resets input to the keyboard.
 - The reader is program-paced (`rsa` asks for one frame; `rsf`/`rrb` wait for and read it), so unlike the keyboard it can't overrun.
 - The PDP-7 has no reader-empty status bit (the PDP-9 and PDP-15 do). A tape with no ^D leaves the kernel waiting for more tape, as it would when real tape runs out; SimH's reader STOP_IOE register can make it halt with "PTR end of file" instead.

@@ -155,7 +155,8 @@ absv:	0
 " frames are skipped and LF becomes CR, so host text files work as
 " tapes. ^D (EOT) ends the tape, switching back to the keyboard, and is
 " returned so accept can end a partial line. The PDP-7 has no reader-empty status, so a tape without ^D
-" leaves the kernel waiting for more tape.
+" leaves the kernel waiting for more tape. ^D typed at the keyboard halts,
+" like BYE; CONTINUE resumes, and accept then treats it as ^D from tape.
 getc:	0
 	lac tapein
 	sza
@@ -164,6 +165,8 @@ getc:	0
 	jmp 1b
 	krb
 	and o177	" 7-bit ASCII
+	sad o4
+	hlt		" ^D from the keyboard: halt, as BYE does
 	jmp i getc
 2:	rsa		" read one frame, alphanumeric mode
 3:	rsf
@@ -1571,7 +1574,16 @@ tape:	lac m1
 	dac tapein
 	jmp next
 
-latest:	h.tape		" head of the dictionary chain
+" EOT ( -- )  end tape input, like ^D: back to the keyboard, and the rest
+" of this line is ignored. A visible alternative to ^D in source files.
+h.eot:	0060000+tag.prim+h.eot-h.tape-1	" EOT
+	0455764
+eot:	dzm tapein
+	lac tend
+	dac inp
+	jmp next
+
+latest:	h.eot		" head of the dictionary chain
 
 " --- stacks and terminal input buffer (DESIGN.md, Memory) ---
 rstack:	.=.+040		" 32 words

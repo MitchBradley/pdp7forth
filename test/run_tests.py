@@ -413,6 +413,21 @@ def main():
         ("tape", ok + "2 . 2 " + ok),
     ], tape=tape)
 
+    # EOT, the visible alternative to ^D: ends tape input, and the rest of
+    # its line is ignored (typed at the keyboard, it's just a comment).
+    session("EOT", [
+        ("tape", ok + "1 . 1 " + ok + "eot 2 . " + ok),
+        ("5 . eot 6 .", "5 " + ok),
+        ("tape", ok + "3 . 3 " + ok),
+    ], tape=b"1 .\neot 2 .\n3 .\n\x04")
+
+    # ^D at the keyboard halts, like BYE.
+    sim = simh.Sim(pimage, L["cold"])
+    sim.type("1 .")
+    output, _ = sim.finish("\x04", timeout=10)
+    check("^D from the keyboard halts", output,
+          "PDP-7 FORTH\r\n1 . 1 " + ok)
+
     session("redefinition warnings", [
         (": sq ;", ok),
         (": sq ;", "sq redefined" + ok),
