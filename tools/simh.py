@@ -1,18 +1,24 @@
 """Drive SimH's pdp7 with a kernel image and a paced console.
 
-SimH's keyboard takes the next input character every TTI TIME
-instructions whether or not the program has read the last one, so an
-unread character is overwritten. The default interval is far shorter
-than a teletype's, and input is lost after a long line. TTI_TIME sets it
-to a Model 33's rate (10 characters/second is about 30,000 PDP-7
-instructions), and Sim.type() also waits for each line's response before
-sending the next, like a person at the teletype.
+The console is a pseudo-terminal, not a pipe: SimH 3.8 polls a non-tty
+stdin with a blocking read(), which freezes the whole simulator (output
+included) whenever no input is waiting, then delivers input while the
+program is busy. On a tty it switches to non-blocking reads.
+
+SimH's keyboard still takes the next character every TTI TIME
+instructions whether or not the program has read the last one, so
+Sim.type() waits for each line's response before sending the next, like
+a person at the teletype, and TTI_TIME sets a Model 33's rate (10
+characters/second is about 30,000 PDP-7 instructions).
 """
 import os
+import pty
 import re
 import subprocess
+import termios
 import tempfile
 import threading
+import tty
 import time
 
 MASK = 0o777777
@@ -35,9 +41,12 @@ class Sim:
         fd, self.script = tempfile.mkstemp(suffix=".do")
         with os.fdopen(fd, "w") as f:
             f.write("\n".join(cmds) + "\n")
-        self.proc = subprocess.Popen(["pdp7", self.script],
-                                     stdin=subprocess.PIPE,
+        self.tty, slave = pty.openpty()
+        tty.setraw(slave)  # no line editing or echo before SimH sets it
+        self.proc = subprocess.Popen(["pdp7", self.script], stdin=slave,
                                      stdout=subprocess.PIPE)
+        os.close(slave)
+        self.running = False
         self.buf = b""
         self.lock = threading.Lock()
         self.reader = threading.Thread(target=self._read, daemon=True)
@@ -51,9 +60,20 @@ class Sim:
             with self.lock:
                 self.buf += chunk
 
+    def _wait_running(self, timeout=10):
+        """SimH switches the tty to run mode with TCSAFLUSH, discarding
+        anything typed before then. Run mode sets VMIN to 0; ours is 1."""
+        deadline = time.monotonic() + timeout
+        while termios.tcgetattr(self.tty)[6][termios.VMIN] != 0:
+            if time.monotonic() > deadline or self.proc.poll() is not None:
+                raise RuntimeError("SimH never started running")
+            time.sleep(0.002)
+        self.running = True
+
     def send(self, text):
-        self.proc.stdin.write(text.encode("latin-1"))
-        self.proc.stdin.flush()
+        if not self.running:
+            self._wait_running()
+        os.write(self.tty, text.encode("latin-1"))
 
     def type(self, line, timeout=2.0):
         """Send a line, then wait until it answers ok or ?. Lines with no
@@ -73,7 +93,6 @@ class Sim:
         output, {"ac": AC, addr: word, ...})."""
         if tail:
             self.send(tail)
-        self.proc.stdin.close()
         try:
             self.proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -82,6 +101,7 @@ class Sim:
                                + self.buf.decode("latin-1")) from None
         finally:
             os.unlink(self.script)
+            os.close(self.tty)
         self.reader.join()
         out = self.buf.decode("latin-1")
         if "HALT instruction" not in out:

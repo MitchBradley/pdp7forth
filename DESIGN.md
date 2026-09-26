@@ -187,7 +187,16 @@ As built (not separately confirmed):
 
 As built (not separately confirmed):
 - The prelude defines TRUE FALSE BL DECIMAL HEX OCTAL 1+ 1- CELL+ ?DUP NIP TUCK ROT -ROT 2DUP 2DROP > <> 0> 0<> ABS MIN MAX +! SPACE SPACES ['].
-- There's no CELLS: a cell is one word, and CELLS would collide with CELL+ (same length and first three characters, which is all a header stores). The prelude tool rejects any definition that collides like this with an earlier kernel or prelude name. The kernel itself doesn't warn on redefinition.
+- There's no CELLS: a cell is one word, and CELLS would collide with CELL+ (same length and first three characters, which is all a header stores).
+
+## Name collisions and WORDS
+
+**[decided]**
+- Defining a name whose length and first three characters match an existing word prints `<name> redefined` and goes ahead; the new word hides the old one. This covers `:`, CONSTANT, VARIABLE and CREATE. The prelude build fails on the warning (and `tools/prelude.py` also checks names against the kernel source before running anything).
+- WORDS lists the dictionary newest first.
+
+As built (not separately confirmed):
+- WORDS prints the stored characters of each name, then one underscore per character that wasn't stored (`EXIT` shows as `EXI_`), so the listing shows each name's true length. It starts on a new line and breaks lines at about 60 columns, since a Model 33 doesn't wrap.
 - `."` is compile-only. S", TYPE, and character-addressed strings (C@ and friends) aren't built; packed strings make them a design question of their own.
 
 ## Open issues
@@ -211,14 +220,19 @@ Besides unit checks on each primitive, it runs scripted interactive
 sessions on an image with the prelude compiled in, and compares the
 exact transcripts.
 
-SimH's keyboard delivers the next piped character every TTI `TIME`
-instructions whether or not the program has read the last one, and the
-default interval is far shorter than a teletype's, so input was lost
-after long lines. The tools set it to a Model 33's rate (10 characters
-per second ≈ 30,000 PDP-7 instructions) and wait for each line's
-` ok` or `?` before typing the next (`tools/simh.py`). The same overrun
-could happen on real hardware if input came faster than the kernel
-reads it, for example from a paper-tape reader. `tools/hdr.py` prints the
+`tools/simh.py` drives SimH for the prelude build and the tests. Its
+console is a pseudo-terminal, not a pipe: SimH 3.8 polls a non-tty
+stdin with a blocking `read()`, which freezes the whole simulator,
+output included, until input arrives, and then delivers that input
+while the program is busy, so characters were lost. It also waits for
+SimH to enter run mode before typing, since SimH flushes pending input
+then. SimH's keyboard still takes the next character every TTI `TIME`
+instructions whether or not the program has read the last one; the
+tools set a Model 33's rate (10 characters per second ≈ 30,000 PDP-7
+instructions) and wait for each line's ` ok` or `?` before typing the
+next, like a person at the teletype. Real hardware could overrun the
+same way if input came faster than the kernel reads it, for example
+from a paper-tape reader. `tools/hdr.py` prints the
 two header words for a name.
 
 `as7`'s `rim` and `ptr` output formats only dump memory from the

@@ -441,7 +441,9 @@ lit:	0
 	jms comp
 	jmp i lit
 
-" mkhdr: parse a name and lay down a header at dp with tag AC.
+" mkhdr: parse a name and lay down a header at dp with tag AC. If the
+" name (its length and first three characters) is already defined, say
+" "<name> redefined" first.
 " Returns AC = the header address; the caller decides when to link it.
 mkhdr:	0
 	dac htag
@@ -451,7 +453,13 @@ mkhdr:	0
 	and nhigh	" longer than 31 characters?
 	sza
 	jmp noname
-	lac dp
+	jms find	" warn if this hides an existing word
+	sad m1
+	jmp 1f
+	jms typetok
+	lac m.redef
+	jms puts
+1:	lac dp
 	dac hadr
 	lac latest
 	cma
@@ -601,6 +609,8 @@ m.name:	1f
 1:	< >n; <a>m; <e>?; 0
 m.far:	1f
 1:	< >f; <a>r; <?; 0
+m.redef:	1f
+1:	< >r; <e>d; <e>f; <i>n; <e>d; 0
 
 " --- scratch and state ---
 t2:	0
@@ -625,6 +635,11 @@ cdp:	0		" header of the definition being compiled, else 0
 msgp:	0
 pstr:	0
 ttc:	0
+wp:	0		" WORDS
+wcnt:	0
+wr:	0
+wk:	0
+wcol:	0
 rsgn:	0
 dp:	end		" next free dictionary word
 pool:	020000		" lowest literal-pool entry; the pool grows down
@@ -643,6 +658,7 @@ m2:	-2
 m3:	-3
 dm7:	-7
 dm10:	-10
+dm60:	-60
 d1:	1
 d2:	2
 d10:	10
@@ -655,6 +671,7 @@ o55:	055
 o77:	077
 o51:	051
 o101:	0101
+o137:	0137
 o177:	0177
 o777:	0777
 o2000:	02000
@@ -1454,7 +1471,64 @@ dotq:	lac c.xdotq
 	jms comp
 	jmp next
 
-latest:	h.dotq		" head of the dictionary chain
+" WORDS ( -- )  list the dictionary, newest first. A header keeps only
+" the first three characters, so a longer name prints as those followed
+" by one underscore per missing character (EXIT -> EXI_). Breaks lines
+" at about 60 columns: a Model 33 doesn't wrap.
+h.words:	0120000+tag.prim+h.words-h.dotq-1	" WORDS
+	0675762
+words:	jms crlf
+	dzm wcol
+	lac latest
+1:	dac wp		" header
+	lac i wp
+	cll
+	lrs 13
+	dac wcnt	" name length
+	cma
+	tad d1
+	dac wr		" -(characters left to print)
+	lac m3
+	dac wk		" stored characters left
+	lac wp
+	tad d1
+	dac t6
+	lac i t6	" packed name word
+	lmq
+2:	cla
+	cll
+	lls 6		" next SIXBIT character
+	tad o40
+	jms putc
+	isz wr
+	skp
+	jmp 3f		" whole name printed
+	isz wk
+	jmp 2b
+4:	lac o137	" '_' for each character not stored
+	jms putc
+	isz wr
+	jmp 4b
+3:	lac o40
+	jms putc
+	lac wcnt
+	tad d1
+	tad wcol
+	dac wcol
+	tad dm60
+	spa
+	jmp 5f
+	jms crlf
+	dzm wcol
+5:	lac i wp	" next header
+	and lmask
+	sna
+	jmp next
+	cma
+	tad wp
+	jmp 1b
+
+latest:	h.words		" head of the dictionary chain
 
 " --- stacks and terminal input buffer (DESIGN.md, Memory) ---
 rstack:	.=.+040		" 32 words

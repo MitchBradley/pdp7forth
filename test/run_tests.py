@@ -384,6 +384,41 @@ def main():
         (": d2 ['] dup execute ; 6 d2 . .", "6 6 " + ok),
     ])
 
+    session("redefinition warnings", [
+        (": sq ;", ok),
+        (": sq ;", "sq redefined" + ok),
+        (": cellx ;", "cellx redefined" + ok),  # same length/prefix as CELL+
+        ("5 constant sq sq .", "sq redefined5 " + ok),
+        ("variable ab variable abc variable ab", "ab redefined" + ok),
+    ])
+
+    # WORDS: rebuild the expected listing from the image's own headers.
+    def expected_words():
+        text, col, p = "\r\n", 0, pword[L["latest"]]
+        while True:
+            w0, w1 = pword.get(p, 0), pword.get(p + 1, 0)
+            count = w0 >> 13
+            stored = "".join(chr(((w1 >> sh) & 0o77) + 0o40)
+                             for sh in (12, 6, 0))
+            text += (stored[:count] + "_" * max(0, count - 3)) + " "
+            col += count + 1
+            if col >= 60:
+                text, col = text + "\r\n", 0
+            if not w0 & 0o777:
+                return text
+            p -= (w0 & 0o777) + 1
+
+    want_words = expected_words()
+    r = session("WORDS", [("words", want_words + ok)])
+    listing = r.output.split("\r\n")
+    check("WORDS: no line over 72 columns",
+          [line for line in listing if len(line) > 72], [])
+    names = r.output.split()
+    check("WORDS: newest first, truncated names marked",
+          [n for n in ("[']", "WOR__", "DUP", "?BR____", "EXI_")
+           if n not in names], [])
+    check("WORDS: oldest last", names[-3:], ["EXI_", "ok", "bye"])
+
     print(f"\n{'FAILED' if failures else 'OK'}: {failures} failure(s)")
     sys.exit(1 if failures else 0)
 

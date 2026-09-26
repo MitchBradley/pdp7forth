@@ -93,7 +93,8 @@ def build(cold, image, text):
     responses = transcript.split("\r\n")[1:]  # drop the banner
     for n, line in enumerate(lines):
         # A line's echo is followed by a space, then " ok" on success.
-        if n >= len(responses) or not responses[n].endswith(" ok"):
+        if (n >= len(responses) or not responses[n].endswith(" ok")
+                or responses[n].endswith(" redefined ok")):
             got = responses[n] if n < len(responses) else "(nothing)"
             sys.exit(f"prelude line {n + 1} failed: {line!r}\n  -> {got!r}")
     new = sorted((a, w) for a, w in mem.items() if a != "ac" and w)
