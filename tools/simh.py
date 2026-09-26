@@ -22,6 +22,7 @@ import threading
 import tty
 import time
 
+PDP7 = os.environ.get("PDP7", "pdp7")  # the SimH PDP-7 binary
 MASK = 0o777777
 TTI_TIME = 30000
 RESPONSE_END = re.compile(rb"(ok|\?)\r\n$")
@@ -52,8 +53,12 @@ class Sim:
             f.write("\n".join(cmds) + "\n")
         self.tty, slave = pty.openpty()
         tty.setraw(slave)  # no line editing or echo before SimH sets it
-        self.proc = subprocess.Popen(["pdp7", self.script], stdin=slave,
-                                     stdout=subprocess.PIPE)
+        try:
+            self.proc = subprocess.Popen([PDP7, self.script], stdin=slave,
+                                         stdout=subprocess.PIPE)
+        except FileNotFoundError:
+            raise SystemExit(f"can't run SimH's PDP-7 simulator {PDP7!r}; "
+                             "see README.md (or set PDP7)") from None
         os.close(slave)
         atexit.register(self._kill)  # never leave SimH spinning behind us
         self.running = False

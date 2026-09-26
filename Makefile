@@ -1,4 +1,8 @@
 AS7 = tools/pdp7-unix/tools/as7
+# The SimH PDP-7 simulator: "make run PDP7=~/simh/BIN/pdp7" if it isn't
+# on PATH as pdp7. The Python tools read it from the environment too.
+PDP7 ?= pdp7
+export PDP7
 SOP = tools/pdp7-unix/src/sys/sop.s
 SRCS = $(SOP) src/kernel.s src/end.s
 
@@ -20,18 +24,18 @@ build/forth.img: build/kernel.lst build/kernel.a7out src/prelude.fs tools/prelud
 build/forth.do: build/kernel.lst build/forth.img tools/mkdo.py
 	python3 tools/mkdo.py build/kernel.lst build/forth.img > $@
 
-# SimH's pdp7 must be on PATH (Debian/Ubuntu: apt install simh). In
-# "run", BYE halts back to the sim> prompt; type "exit" there.
+# See README.md. In "run", BYE or ^D halts to the sim> prompt; type
+# "exit" there.
 # "make run TAPE=file.fs" mounts file.fs in the paper-tape reader (with
 # ^D appended); type TAPE in Forth to read it.
 ifdef TAPE
 run: build/forth.img tools/mkdo.py tools/mktape.py
 	python3 tools/mktape.py $(TAPE) build/run.ptr
 	python3 tools/mkdo.py build/kernel.lst build/forth.img build/run.ptr > build/run.do
-	pdp7 build/run.do
+	$(PDP7) build/run.do
 else
 run: build/forth.do
-	pdp7 build/forth.do
+	$(PDP7) build/forth.do
 endif
 
 test:
