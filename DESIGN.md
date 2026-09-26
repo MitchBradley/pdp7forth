@@ -107,6 +107,36 @@ Consequences of this scheme:
 - **[open]** Whether EAE is assumed.
 - **[open]** Target I/O: console teletype, paper tape.
 
+## Implementation notes
+
+`src/kernel.s` transcribes NEXT, `nest` (the CAL trap handler), and `find`
+(dictionary search) directly from the sections above, plus a hand-built
+2-entry test dictionary and two cold-start smoke tests. Assembles clean
+with `as7` (vendored as a submodule at `tools/pdp7-unix`) and runs
+correctly under SimH's `pdp7`: one test drives a CAL cell through
+NEXT/nest into a colon word that calls a primitive (verified via the
+primitive's halt-time AC value); the other calls `find` directly and
+checks the returned body address. See `src/kernel.s`'s header comment for
+exact build/run steps. No text interpreter, `:`/`;` compiler, or
+primitive set yet -- this only proves the threading/search mechanics
+assemble and execute as designed.
+
+Two things `kernel.s` had to pin down that this file left implicit;
+flagged **[proposed]**, not promoted to decided:
+
+- **[proposed]** Header tag numbering: colon=0, primitive=1, constant=2,
+  variable=3 (4-7 spare), matching the Threading table's row order.
+- **[proposed]** Name characters are packed as classic SIXBIT
+  (`ascii(ch) - 040`), matching "6-bit characters" plus case-folded
+  input. Untested against the [open] question of what "case-folded"
+  produces for punctuation/digits, since the test dictionary only uses
+  letters.
+
+One assembler gotcha worth recording here since it's easy to get wrong
+silently: `as7` parses a bare literal with no leading zero as *decimal*
+(`10` is decimal ten, not octal 10) -- every octal register/address
+literal in `kernel.s` is written with a leading zero (`010`) to avoid it.
+
 ## Idea stack (deferred)
 
 - Token threading with two 9-bit tokens per word: roughly halves thread size, at the cost of a table lookup in NEXT and a 512-token limit.

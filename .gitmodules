@@ -1,0 +1,3 @@
+[submodule "tools/pdp7-unix"]
+	path = tools/pdp7-unix
+	url = https://github.com/DoctorWkt/pdp7-unix
