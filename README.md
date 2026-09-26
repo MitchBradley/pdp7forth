@@ -61,8 +61,8 @@ make run PDP7=~/simh/BIN/pdp7
 (`PDP7` works for every target, and for `test/run_tests.py` as an
 environment variable.)
 
-The project is developed and tested with SimH 3.8 on Linux, and has
-also been used with Open SIMH 4 (Homebrew's `open-simh`) on macOS. If
+The project is developed with SimH 3.8 on Linux, and `make test` also
+passes with Open SIMH 4 (Homebrew's `open-simh`) on macOS. If
 something behaves differently under another version, the console
 settings in `tools/mkdo.py` and `tools/simh.py` are the first place to
 look.
