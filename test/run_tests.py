@@ -267,14 +267,26 @@ def main():
     pimage, _ = prelude.build(L["cold"], image, ptext)
     pword = dict(pimage)
 
-    def session(desc, exchanges, examine=()):
-        """exchanges: (line, response) pairs; response follows the echo."""
-        want = "PDP-7 FORTH\r\n" + "".join(
-            f"{line} {resp}" for line, resp in exchanges) + "bye "
-        sim = simh.Sim(pimage, L["cold"], examine=[SP, RP] + list(examine))
-        for line, _ in exchanges:
-            sim.type(line)
-        output, values = sim.finish("bye\r")
+    def session(desc, exchanges, examine=(), tape=None):
+        """exchanges: (line, response) pairs; response follows the echo,
+        and for TAPE includes everything read from the tape. Each line is
+        typed once the transcript so far has appeared."""
+        want = "PDP-7 FORTH\r\n"
+        sim = simh.Sim(pimage, L["cold"], examine=[SP, RP] + list(examine),
+                       tape=tape)
+        try:
+            for line, resp in exchanges:
+                sim.send(line + "\r")
+                want += f"{line} {resp}"
+                sim.wait_for(re.escape(want.encode("latin-1")), timeout=5)
+        except RuntimeError:
+            pass  # the transcript check below reports the difference
+        want += "bye "
+        try:
+            output, values = sim.finish("bye\r", timeout=10)
+        except RuntimeError as e:
+            check(f"session {desc}", str(e), want)
+            return Result()
         r = Result(values)
         r.output = output
         check(f"session {desc}", r.output, want)
@@ -383,6 +395,23 @@ def main():
         ("65 emit space 66 emit 3 spaces 67 emit 0 spaces", "A B   C" + ok),
         (": d2 ['] dup execute ; 6 d2 . .", "6 6 " + ok),
     ])
+
+    # --- paper tape input ---
+    tape = (b"\0\0\0"                      # blank leader
+            b"1 2 + .\n"
+            b": sq dup * ;\r\n"             # CR LF line endings work too
+            b"5 sq .\n\x04"
+            b"sq sq .\x04"                   # ^D mid-line ends the line
+            b"foo\n2 .\n\x04")              # an error stops tape input
+    session("paper tape", [
+        ("tape", ok + "1 2 + . 3 " + ok + ": sq dup * ; " + ok
+         + "5 sq . 25 " + ok),
+        ("7 sq .", "49 " + ok),              # back at the keyboard after ^D
+        ("3 tape", ok + "sq sq . 81 " + ok),  # resumes; tape sees the 3
+        ("tape", ok + "foo foo ?\r\n"),
+        ("4 .", "4 " + ok),                  # the error returned control here
+        ("tape", ok + "2 . 2 " + ok),
+    ], tape=tape)
 
     session("redefinition warnings", [
         (": sq ;", ok),

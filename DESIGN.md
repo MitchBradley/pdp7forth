@@ -125,13 +125,27 @@ pop.sp, 0
 - Console teletype only, polled with interrupts off: `ksf`/`krb` in, `tsf`/`tls` out.
 - 7-bit ASCII. Input strips bit 8, since a real Model 33 sends it set.
 - Case folding happens only on dictionary lookup (and on number digits past 9).
-- No paper tape for now.
+- Paper-tape reader as a second input source (below). No punch yet.
 
 As built (not separately confirmed):
 - The kernel echoes input; SimH needs `set tti fdx` so it doesn't echo too.
 - CR ends a line and isn't echoed, so " ok" lands on the same line.
 - Rubout and backspace drop the last character and echo a backspace.
 - The TIB holds 80 characters, one per word. Characters past 80 are ignored.
+
+## Paper tape input
+
+**[decided]**
+- TAPE switches `accept`'s input from the keyboard to the paper-tape reader; SimH backs the reader with a host file (`attach ptr file`). Tape lines echo, as an ASR-33 prints tape as it reads it.
+- ^D (EOT, 004) ends tape input and returns to the keyboard. Mid-line it also ends that line. The tools append it (`tools/mktape.py`), so source files stay ordinary text.
+- The prelude build mounts the prelude (plus BYE) as a tape instead of typing it at the console.
+
+As built (not separately confirmed):
+- On tape, NUL frames (blank leader and trailer) and CR are skipped, and LF ends a line, so LF and CR LF files both work.
+- ^D at the start of a line just switches to the keyboard, so a file ending in LF then ^D doesn't produce an extra empty `ok` line.
+- An error while reading tape stops tape input (abort returns to the keyboard), so the rest of a broken file isn't interpreted. The reader keeps its position, so a later TAPE resumes after the failing line. A cold start also resets input to the keyboard.
+- The reader is program-paced (`rsa` asks for one frame; `rsf`/`rrb` wait for and read it), so unlike the keyboard it can't overrun.
+- The PDP-7 has no reader-empty status bit (the PDP-9 and PDP-15 do). A tape with no ^D leaves the kernel waiting for more tape, as it would when real tape runs out; SimH's reader STOP_IOE register can make it halt with "PTR end of file" instead.
 
 ## Memory
 
@@ -212,7 +226,9 @@ of free space. Kernel, stacks, TIB and number buffer end at 02423
 (1299 words).
 
 `make` builds `build/forth.img` (kernel plus compiled prelude) and a
-SimH script for it; `make run` boots it in SimH (`pdp7`); `make test` runs
+SimH script for it; `make run` boots it in SimH (`pdp7`), and
+`make run TAPE=file.fs` also mounts a file in the reader for TAPE;
+`make test` runs
 `test/run_tests.py`, which assembles the kernel with `test/tests.s`
 (test-only drivers and hand-built threads), reads addresses from the
 listing, and checks results under SimH with console input piped in.

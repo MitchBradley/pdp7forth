@@ -149,11 +149,37 @@ absv:	0
 	jmp i absv
 
 " --- console (DESIGN.md, I/O): polled, interrupts off ---
+" getc: next input character: from the keyboard, or from the paper-tape
+" reader after TAPE. The reader only advances when asked, so unlike the
+" keyboard it can't overrun. On tape, blank (NUL) leader/trailer and CR
+" frames are skipped and LF becomes CR, so host text files work as
+" tapes. ^D (EOT) ends the tape, switching back to the keyboard, and is
+" returned so accept can end a partial line. The PDP-7 has no reader-empty status, so a tape without ^D
+" leaves the kernel waiting for more tape.
 getc:	0
+	lac tapein
+	sza
+	jmp 2f
 1:	ksf
 	jmp 1b
 	krb
 	and o177	" 7-bit ASCII
+	jmp i getc
+2:	rsa		" read one frame, alphanumeric mode
+3:	rsf
+	jmp 3b
+	rrb
+	and o177
+	sna
+	jmp 2b		" blank tape
+	sad o15
+	jmp 2b		" CR: the LF ends the line
+	sad o12
+	jmp 4f
+	sad o4
+	dzm tapein	" ^D: end of tape (skipped by sad for other characters)
+	jmp i getc
+4:	lac o15
 	jmp i getc
 
 putc:	0
@@ -196,7 +222,8 @@ tcnt:	0		" count field of the name being sought
 tname:	0		" packed SIXBIT name word being sought
 
 " --- accept: read a line into tib, echoing ---
-" CR ends the line; it isn't stored, and echoes as a space. Rubout and backspace drop
+" CR ends the line; it isn't stored, and echoes as a space. So does ^D
+" (end of tape, see getc) unless the line is empty. Rubout and backspace drop
 " the last character and echo a backspace. Characters past the 80th are
 " ignored. Leaves inp = tib and tend = tib + count.
 accept:	0
@@ -206,6 +233,8 @@ accept:	0
 1:	jms getc
 	sad o15
 	jmp 3f
+	sad o4
+	jmp 5f
 	sad o177
 	jmp 2f
 	sad o10
@@ -231,6 +260,10 @@ accept:	0
 3:	lac o40
 	jms putc
 	jmp i accept
+5:	lac tend	" ^D (end of tape) ends a partial line; on an empty
+	sad tibp	" one, just carry on from the keyboard
+	jmp 1b
+	jmp 3b
 
 " --- parse: take the next blank-delimited token from inp ---
 " Returns AC = wlen (0 at end of line). Sets wptr and wlen, plus tcnt and
@@ -491,9 +524,10 @@ error:	dac msgp
 	jms puts
 	jms crlf
 
-" abort: abandon any definition in progress, empty both stacks, and
-" restart the interpreter. quit leaves the data stack alone.
-abort:	lac cdp
+" abort: stop reading tape, abandon any definition in progress, empty both
+" stacks, and restart the interpreter. quit leaves the data stack alone.
+abort:	dzm tapein	" an error while loading tape: back to the keyboard
+	lac cdp
 	sna
 	jmp 1f
 	dac dp		" discard the partial definition
@@ -618,6 +652,7 @@ t3:	0
 t4:	0
 t5:	0
 t6:	0
+tapein:	0		" nonzero: getc reads the paper-tape reader
 inp:	0		" next unread character in tib
 tend:	0		" tib + line length
 wptr:	0		" start of the last parsed token
@@ -662,6 +697,7 @@ dm60:	-60
 d1:	1
 d2:	2
 d10:	10
+o4:	04
 o10:	010
 o12:	012
 o15:	015
@@ -1528,7 +1564,14 @@ words:	jms crlf
 	tad wp
 	jmp 1b
 
-latest:	h.words		" head of the dictionary chain
+" TAPE ( -- )  take input lines from the paper-tape reader until ^D.
+h.tape:	0100000+tag.prim+h.tape-h.words-1	" TAPE
+	0644160
+tape:	lac m1
+	dac tapein
+	jmp next
+
+latest:	h.tape		" head of the dictionary chain
 
 " --- stacks and terminal input buffer (DESIGN.md, Memory) ---
 rstack:	.=.+040		" 32 words

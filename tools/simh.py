@@ -11,6 +11,7 @@ Sim.type() waits for each line's response before sending the next, like
 a person at the teletype, and TTI_TIME sets a Model 33's rate (10
 characters/second is about 30,000 PDP-7 instructions).
 """
+import atexit
 import os
 import pty
 import re
@@ -28,9 +29,17 @@ BANNER = re.compile(r"PDP-7 simulator V[\d.\-]+\n")
 
 
 class Sim:
-    def __init__(self, image, start, deposits=(), examine=(), setup=()):
+    def __init__(self, image, start, deposits=(), examine=(), setup=(),
+                 tape=None):
+        """tape: bytes to mount in the paper-tape reader (see mktape.py)."""
         cmds = ["set cpu 8k", "set cpu eae", "set tti fdx", "set tti 8b",
                 f"d tti time {TTI_TIME}"]
+        self.tapefile = None
+        if tape is not None:
+            fd, self.tapefile = tempfile.mkstemp(suffix=".ptr")
+            with os.fdopen(fd, "wb") as f:
+                f.write(tape)
+            cmds.append(f"attach ptr {self.tapefile}")
         cmds += list(setup)
         cmds += [f"d {a:o} {w & MASK:o}" for a, w in image]
         cmds += [f"d {a:o} {w & MASK:o}" for a, w in deposits]
@@ -46,11 +55,16 @@ class Sim:
         self.proc = subprocess.Popen(["pdp7", self.script], stdin=slave,
                                      stdout=subprocess.PIPE)
         os.close(slave)
+        atexit.register(self._kill)  # never leave SimH spinning behind us
         self.running = False
         self.buf = b""
         self.lock = threading.Lock()
         self.reader = threading.Thread(target=self._read, daemon=True)
         self.reader.start()
+
+    def _kill(self):
+        if self.proc.poll() is None:
+            self.proc.kill()
 
     def _read(self):
         while True:
@@ -88,6 +102,20 @@ class Sim:
                     return
             time.sleep(0.002)
 
+    def wait_for(self, pattern, timeout=10.0):
+        """Wait until the console output (SimH's messages included) matches
+        the regex pattern (bytes); return the match."""
+        regex = re.compile(pattern)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self.lock:
+                m = regex.search(self.buf)
+            if m:
+                return m
+            time.sleep(0.002)
+        raise RuntimeError(f"never saw {pattern!r}; console so far:\n"
+                           + self.buf.decode("latin-1"))
+
     def finish(self, tail="", timeout=30):
         """Send tail, end input, and wait for the halt. Returns (console
         output, {"ac": AC, addr: word, ...})."""
@@ -101,6 +129,8 @@ class Sim:
                                + self.buf.decode("latin-1")) from None
         finally:
             os.unlink(self.script)
+            if self.tapefile:
+                os.unlink(self.tapefile)
             os.close(self.tty)
         self.reader.join()
         out = self.buf.decode("latin-1")

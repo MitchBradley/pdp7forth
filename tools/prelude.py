@@ -3,15 +3,17 @@
 
 usage: prelude.py LISTING A7OUT PRELUDE OUT [KERNEL_SOURCE]
 
-Boots the assembled kernel at "cold", types the prelude at it, ends with
-BYE, then reads all of memory back and writes it (nonzero words only) in
-the same "addr: word" form as as7's a7out output. Fails if any prelude
-line gets a response other than " ok". The prelude source never takes
-space in the image.
+Boots the assembled kernel at "cold" with the prelude, followed by BYE,
+mounted as a paper tape, types TAPE, and lets the kernel read it. Then
+reads all of memory back and writes it (nonzero words only) in the same
+"addr: word" form as as7's a7out output. Fails if any prelude line gets
+a response other than " ok", including a redefinition warning. The
+prelude source never takes space in the image.
 """
 import re
 import sys
 
+import mktape
 import simh
 
 MAXLINE = 80  # the kernel's TIB
@@ -86,11 +88,20 @@ def check_names(kernel_src, text):
 def build(cold, image, text):
     """Return (new image, transcript). Exits if a prelude line fails."""
     lines = prelude_lines(text)
-    sim = simh.Sim(image, cold, examine=range(0o20000))
-    for line in lines:
-        sim.type(line)
-    transcript, mem = sim.finish("bye\r")
-    responses = transcript.split("\r\n")[1:]  # drop the banner
+    tape = mktape.to_tape("\n".join(lines) + "\nbye\n")
+    sim = simh.Sim(image, cold, examine=range(0o20000), tape=tape)
+    sim.type("tape")
+    # The tape ends with BYE. An error stops tape input instead, leaving
+    # the kernel at the keyboard, so type BYE there.
+    try:
+        halted = sim.wait_for(rb"HALT instruction|\?\r\n",
+                              timeout=20).group() == b"HALT instruction"
+    except RuntimeError:
+        halted = False  # e.g. a line never ended; the checks below say where
+    if not halted:
+        sim.send("bye\r")
+    transcript, mem = sim.finish()
+    responses = transcript.split("\r\n")[2:]  # drop the banner and TAPE
     for n, line in enumerate(lines):
         # A line's echo is followed by a space, then " ok" on success.
         if (n >= len(responses) or not responses[n].endswith(" ok")

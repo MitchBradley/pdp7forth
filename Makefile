@@ -14,7 +14,7 @@ build/kernel.a7out: $(SRCS) | build
 	$(AS7) -o $@ $(SRCS)
 
 # The prelude is compiled by running the kernel under SimH (needs pdp7).
-build/forth.img: build/kernel.lst build/kernel.a7out src/prelude.fs tools/prelude.py tools/simh.py
+build/forth.img: build/kernel.lst build/kernel.a7out src/prelude.fs tools/prelude.py tools/simh.py tools/mktape.py
 	python3 tools/prelude.py build/kernel.lst build/kernel.a7out src/prelude.fs $@ src/kernel.s
 
 build/forth.do: build/kernel.lst build/forth.img tools/mkdo.py
@@ -22,8 +22,17 @@ build/forth.do: build/kernel.lst build/forth.img tools/mkdo.py
 
 # SimH's pdp7 must be on PATH (Debian/Ubuntu: apt install simh). In
 # "run", BYE halts back to the sim> prompt; type "exit" there.
+# "make run TAPE=file.fs" mounts file.fs in the paper-tape reader (with
+# ^D appended); type TAPE in Forth to read it.
+ifdef TAPE
+run: build/forth.img tools/mkdo.py tools/mktape.py
+	python3 tools/mktape.py $(TAPE) build/run.ptr
+	python3 tools/mkdo.py build/kernel.lst build/forth.img build/run.ptr > build/run.do
+	pdp7 build/run.do
+else
 run: build/forth.do
 	pdp7 build/forth.do
+endif
 
 test:
 	python3 test/run_tests.py
